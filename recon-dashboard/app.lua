@@ -1,11 +1,13 @@
 local dns = require "dns"
 local http_recon = require "http_recon"
 local storage = require "storage"
+local validator = require "validator"
 
 -- Initialize storage
 storage.init()
 
 local method = ngx.req.get_method()
+local error_msg = nil
 
 if method == "POST" then
     ngx.req.read_body()
@@ -17,18 +19,21 @@ if method == "POST" then
 
     local target = args.target
     if target and target ~= "" then
-        -- Sanitize input (basic check)
-        target = target:gsub("[%s;'\"`|<>&$]", "")
+        local safe_target, val_err = validator.sanitize_and_validate(target)
         
-        local dns_res = dns.resolve(target)
-        local http_headers, endpoints = http_recon.get_headers_and_endpoints(target)
-        local tls_info = http_recon.get_tls_info(target)
-        
-        storage.save_scan(target, dns_res, http_headers, tls_info, endpoints)
-        
-        -- Redirect back to home to see results
-        ngx.redirect("/")
-        return
+        if not safe_target then
+            error_msg = val_err
+        else
+            local dns_res = dns.resolve(safe_target)
+            local http_headers, endpoints = http_recon.get_headers_and_endpoints(safe_target)
+            local tls_info = http_recon.get_tls_info(safe_target)
+            
+            storage.save_scan(safe_target, dns_res, http_headers, tls_info, endpoints)
+            
+            -- Redirect back to home to see results
+            ngx.redirect("/")
+            return
+        end
     end
 end
 
@@ -52,13 +57,20 @@ ngx.say([[
         .scan-result { margin-top: 20px; border-top: 2px solid #eee; padding-top: 20px; }
         pre { background: #2c3e50; color: #ecf0f1; padding: 10px; border-radius: 4px; overflow-x: auto; }
         .history-item { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 4px; background: #fafafa; }
+        .error-msg { color: #e74c3c; font-weight: bold; background: #fadbd8; padding: 10px; border-radius: 4px; margin-bottom: 15px; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Passive Recon Dashboard</h1>
         <p>Enter a domain or IP for safe, passive reconnaissance.</p>
-        
+]])
+
+if error_msg then
+    ngx.say("<div class='error-msg'>Error: " .. error_msg .. "</div>")
+end
+
+ngx.say([[
         <form method="POST" action="/">
             <div class="form-group">
                 <input type="text" name="target" placeholder="e.g., example.com" required>
