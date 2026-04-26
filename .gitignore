@@ -1,0 +1,6 @@
+logs/
+data/
+*.log
+*.db
+temp/
+node_modules/
