@@ -18,7 +18,8 @@ function M.init()
             dns_results TEXT,
             http_headers TEXT,
             tls_info TEXT,
-            endpoints TEXT
+            endpoints TEXT,
+            whois_info TEXT
         );
     ]]
     
@@ -31,18 +32,18 @@ function M.init()
     return true
 end
 
-function M.save_scan(target, dns_results, http_headers, tls_info, endpoints)
+function M.save_scan(target, dns_results, http_headers, tls_info, endpoints, whois_info)
     local db = sqlite3.open(db_path)
     if not db then return false end
     
-    local stmt = db:prepare("INSERT INTO scans (target, dns_results, http_headers, tls_info, endpoints) VALUES (?, ?, ?, ?, ?)")
+    local stmt = db:prepare("INSERT INTO scans (target, dns_results, http_headers, tls_info, endpoints, whois_info) VALUES (?, ?, ?, ?, ?, ?)")
     if not stmt then
         ngx.log(ngx.ERR, "Error preparing statement: ", db:errmsg())
         db:close()
         return false
     end
     
-    stmt:bind_values(target, dns_results, http_headers, tls_info, endpoints)
+    stmt:bind_values(target, dns_results, http_headers, tls_info, endpoints, whois_info)
     stmt:step()
     stmt:finalize()
     db:close()
