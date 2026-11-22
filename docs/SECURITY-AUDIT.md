@@ -72,6 +72,20 @@ Verification completed locally:
 - Backup script shell syntax, logrotate configuration and workflow YAML were
   validated. Hosted GitHub CI has not run: this new repository has no remote.
 
+Production verification on 2026-11-23:
+
+- Graceful reload of both Nginx services succeeded; the origin health endpoint
+  returns `ok`, and SQLite `quick_check` returns `ok`.
+- The public Cloudflare route still returns 401 without credentials and now
+  includes HSTS, strict CSP, DENY framing, nosniff and noindex headers.
+- A temporary production scan of `example.com` completed with verified HTTPS
+  and ten DNS observations. Its report was then deleted from its test workspace.
+- The six legacy rows remain intact; no test workspace reports remain live.
+- The backup service completed successfully. Its compressed database was
+  extracted into a temporary directory and passed SQLite integrity checking;
+  the paired 32-byte key has mode 0600, and both checksums match. The daily timer
+  remains active. This verifies the snapshot, not a full application restore.
+
 ## Remaining limits
 
 This is not proof that all vulnerabilities are absent. No host-wide penetration

@@ -48,3 +48,14 @@ data-lifecycle decisions; they must not be represented as working features yet.
 Public acquisition needs a separate public educational landing page and a
 deliberate decision about signup and scan abuse controls. The existing private
 dashboard should remain outside search results.
+
+## Delivered release
+
+LuaLens 2.0 is installed on the existing VPS service. Stages 1–4 are implemented:
+the regression suite passes (60 Lua tests, five JavaScript tests and five browser
+scenarios), desktop/mobile layouts were inspected, both Nginx layers were
+validated and gracefully reloaded, a live scan completed, the original six
+records were preserved, and the new paired-key backup was integrity-checked.
+GitHub CI is versioned and the same checks run locally; a hosted run awaits a
+remote repository. Public SEO acquisition and the roadmap items above remain
+future releases, since authentication and noindex are intentionally retained.
