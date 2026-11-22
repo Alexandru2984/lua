@@ -11,6 +11,20 @@ local controls = {
 }
 function M.assess(headers, verified)
     local checks, score = {}, 0
+    local csp = headers['content-security-policy'] or ''
+    local directives = {}
+    for directive in csp:gmatch('[^;]+') do
+        local name, sources=directive:match('^%s*([a-z-]+)%s+(.+)%s*$')
+        if name then directives[name]=sources end
+    end
+    local function restricted(sources)
+        if not sources or sources:find(',',1,true) then return false end
+        for token in sources:gmatch('%S+') do
+            if token=='*' or token=='http:' or token=='https:' or token=='data:' or token=='blob:' or
+                token=="'unsafe-inline'" or token=="'unsafe-eval'" then return false end
+        end
+        return true
+    end
     for _, control in ipairs(controls) do
         local key, value = control[1], headers[control[1]]
         local pass, weak = false, false
@@ -18,14 +32,16 @@ function M.assess(headers, verified)
         elseif key == 'strict-transport-security' then
             pass=verified and value and (tonumber(value:lower():match('max%-age%s*=%s*(%d+)')) or 0)>=31536000
         elseif key == 'content-security-policy' then
-            pass=value and (value:find('default%-src%s') or value:find('script%-src%s')) and not value:find("'unsafe%-inline'") and not value:find("'unsafe%-eval'")
+            pass=value and restricted(directives['script-src-elem'] or directives['script-src'] or directives['default-src']) and
+                not csp:find("'unsafe%-eval'") and not csp:find("'unsafe%-inline'")
         elseif key == 'x-content-type-options' then pass=value and value:lower()=='nosniff'
         elseif key == 'frame-protection' then
-            value=headers['content-security-policy'] and headers['content-security-policy']:match('frame%-ancestors%s+([^;]+)') or headers['x-frame-options']
-            pass=value and (value:lower()=='deny' or value:lower()=='sameorigin' or (value:find("'none'",1,true) or value:find("'self'",1,true)) and not value:find('*',1,true))
+            value=directives['frame-ancestors'] or headers['x-frame-options']
+            if directives['frame-ancestors'] then pass=restricted(value) and (value:find("'none'",1,true) or value:find("'self'",1,true))
+            else pass=value and (value:lower()=='deny' or value:lower()=='sameorigin') end
         elseif key == 'referrer-policy' then
             pass=value and (value=='no-referrer' or value=='same-origin' or value=='strict-origin' or value=='strict-origin-when-cross-origin')
-        else pass=value and #value>0 end
+        else pass=value and value:match('[a-z-]+%s*=%s*%(') and not value:find('*',1,true) end
         weak=value and not pass
         if pass then score=score+control[3] end
         checks[#checks+1]={key=key,label=control[2],state=pass and 'pass' or (weak and 'review' or 'missing'),value=value,weight=control[3],advice=control[4]}

@@ -88,6 +88,10 @@ function M.count(owner)
     local rows, err = query('SELECT COUNT(*) AS total FROM scans WHERE owner=?', {owner})
     return rows and rows[1].total, err
 end
+function M.healthy()
+    local rows=query('SELECT owner,report FROM scans LIMIT 1')
+    return rows ~= nil
+end
 function M.recent(owner, target, profile)
     local rows, err = query("SELECT id,status FROM scans WHERE owner=? AND target=? AND profile=? AND (status='pending' OR (status IN ('completed','partial') AND created_epoch>?)) ORDER BY id DESC LIMIT 1", {owner,target,profile,ngx.time()-600})
     return rows and rows[1], err

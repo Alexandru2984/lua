@@ -1,0 +1,14 @@
+/srv/canary/lua.micutu.com/app/logs/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    su micu micu
+    create 0600 micu micu
+    sharedscripts
+    postrotate
+        /bin/systemctl kill -s USR1 --kill-whom=main lua-recon-canary.service >/dev/null 2>&1 || true
+    endscript
+}

@@ -34,7 +34,60 @@ with bounded local verification, not a host-wide penetration test.
 
 ## Remediation verification
 
-Updated after implementation with actual test outcomes and remaining limits.
+The release removes HTML concatenation of remote values and all shell execution.
+Every outbound HTTP connection uses a vetted pinned public IPv4, standard ports,
+verified HTTPS, bounded headers/body and an absolute deadline. RDAP redirects are
+revalidated. Signed browser workspaces, ownership-bound queries, CSRF checks,
+scan-only quotas, job leases, stale-job recovery, safe SQLite errors and retention
+are implemented. The original six ownerless rows are preserved offline.
+
+The origin and outer vhost enforce a strict local-script CSP. The outer vhost's
+analytics injection is removed. Its `X-Robots-Tag` was moved to server level:
+the original location-level `add_header` prevented inheritance of the other
+server-level policies, including HSTS, on that location. This was confirmed by
+the original public 401 response lacking HSTS. Both configurations pass Nginx
+validation. API traffic also has a separate 10 requests/second budget with a
+40-request burst, independent of the scan quota.
+
+Verification completed locally:
+
+- **60 Lua regressions:** strict input, mixed DNS answers, pinned destinations,
+  refused private IPs, redirect behavior, verified TLS, response limits, time
+  budgets, SQL-bound values, workspace ownership, nullable scores, retention and
+  legacy preservation, and conservative header observations.
+- **5 JavaScript regressions:** spreadsheet formula neutralization, CSV quoting,
+  export errors, meaningful comparisons and unavailable scores.
+- **5 browser scenarios against isolated Nginx:** request integrity, forged
+  cookies, authorization on read/update/delete, scans, favorites, comparison,
+  JSON/CSV downloads, malicious upstream text rendered inert, scan-only quotas,
+  partial failures, deep provider results, themes, keyboard/dialogs and mobile
+  widths 360/390/768/1024/1440. No page-level horizontal overflow or JavaScript
+  exceptions in these scenarios.
+- Real-provider smoke testing in a separate temporary database returned DNS,
+  verified HTTPS and RDAP for `example.com`; unavailable crt.sh produced a
+  partial report rather than an invented result.
+- `npm audit` reported **0 advisories** for the locked development dependency
+  tree. There are no production npm dependencies. This does not audit system
+  packages, Lua modules or upstream services against all known advisories.
+- Backup script shell syntax, logrotate configuration and workflow YAML were
+  validated. Hosted GitHub CI has not run: this new repository has no remote.
+
+## Remaining limits
+
+This is not proof that all vulnerabilities are absent. No host-wide penetration
+test, external authenticated browser test, full production restore, load test,
+Firefox/Safari verification, dedicated service-user migration or OS-wide CVE
+remediation was performed. The service shares the existing `micu` Unix identity;
+a compromised process with that identity can access its runtime data. A dedicated
+account and egress firewall are recommended future host work.
+
+Basic auth and noindex remain deliberate. Public signup, ownership verification,
+abuse controls and account recovery need a separate release before opening the
+dashboard to general users. Browser cookies are currently the workspace identity;
+there is no account recovery. Provider data can be unavailable or incomplete,
+IPv6-only targets are unsupported, and header scores do not certify security.
+The matching signing key is now included in private daily backups so that a
+database restore does not silently strand browser workspaces.
 
 ## References
 

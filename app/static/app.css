@@ -15,3 +15,5 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 .data-table th:nth-child(3),.data-table td:nth-child(3){white-space:nowrap}
 @media(max-width:680px){.stat-note{display:none}.stat-label{min-height:42px;font-size:12px;max-width:none}.stat-card{min-height:109px}.data-table code{font-size:12px}.stat-card strong{font-size:25px}.profile-selector small{display:block;margin:0}.input-hint{font-size:12px}.history-table .domain-button{font-size:13px}.report-tabs button{padding-inline:13px}.sidebar nav .nav-item{font-size:0}}
 .data-table td:nth-child(3)>code{white-space:nowrap}
+:root[data-theme=light] .filter-button[aria-pressed=true]{color:#3d651c}
+@media(max-width:680px){.target-input input{font-size:16px}.topbar .icon-button,.row-actions .icon-button{width:44px;height:44px}.history-filters select,.filter-button{min-height:44px}.report-tabs button{min-height:44px}}

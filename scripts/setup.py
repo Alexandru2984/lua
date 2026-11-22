@@ -18,6 +18,7 @@ except FileExistsError:
 else:
     with os.fdopen(fd, 'wb') as f:
         f.write(os.urandom(32))
+key.chmod(0o600)
 addresses = json.loads(subprocess.check_output(['ip', '-j', '-4', 'addr', 'show']))
 ips = {a['local'] for iface in addresses for a in iface.get('addr_info', [])}
 (root / 'app/data/denied-ips').write_text('\n'.join(sorted(ips)) + '\n')

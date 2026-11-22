@@ -12,13 +12,15 @@ end
 local function error_response(status,message) return reply(status,{error=message}) end
 if path=='/api/health' then
     if method~='GET' then return error_response(405,'Method not allowed.') end
-    return reply(200,{status='ok'})
+    local ready=storage.healthy()
+    return reply(ready and 200 or 503,{status=ready and 'ok' or 'unavailable'})
 end
 local bootstrap=path=='/api/bootstrap'
 local owner,csrf=session.get(bootstrap and method=='GET')
 if not owner then return error_response(401,'Your workspace session has expired. Reload this page.') end
 if method~='GET' and not session.check(csrf) then return error_response(403,'Request verification failed. Reload this page and retry.') end
 if bootstrap and method=='GET' then
+    if ngx.var.http_sec_fetch_site=='cross-site' then return error_response(403,'Open the workspace directly to begin.') end
     return reply(200,{csrf=csrf,limits={per_minute=3,retention_days=30,cache_seconds=600},version='2.0'})
 end
 if path=='/api/scans' and method=='GET' then
@@ -30,7 +32,8 @@ if path=='/api/scans' and method=='GET' then
     return reply(200,{scans=#rows>0 and rows or json.empty_array or {},total=total,page=page,page_size=50})
 end
 local function body()
-    if not (ngx.var.content_type or ''):match('^application/json%s*;?') then return nil,'Send application/json.' end
+    local content_type=(ngx.var.content_type or ''):lower():match('^%s*([^;%s]+)')
+    if content_type~='application/json' then return nil,'Send application/json.' end
     ngx.req.read_body()
     local raw=ngx.req.get_body_data()
     if not raw or #raw>4096 then return nil,'Request body is missing or too large.' end
@@ -96,5 +99,5 @@ if id and #id<12 then
     ngx.header.Allow='GET, PATCH, DELETE'
     return error_response(405,'Method not allowed.')
 end
-if path=='/api/scans' or bootstrap then ngx.header.Allow='GET, POST'; return error_response(405,'Method not allowed.') end
+if path=='/api/scans' or bootstrap then ngx.header.Allow=bootstrap and 'GET' or 'GET, POST'; return error_response(405,'Method not allowed.') end
 return error_response(404,'Endpoint not found.')

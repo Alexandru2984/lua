@@ -10,9 +10,9 @@ function M.resolve(target, deadline)
     for _, query in ipairs(queries) do
         if ngx.now() >= deadline then errors[#errors+1]='DNS time budget exceeded.'; break end
         local answers, e = r:query(query[3], {qtype=query[1]})
-        if not answers or answers.errcode then
+        if not answers or (answers.errcode and answers.errcode~=3) then
             errors[#errors+1] = query[2] .. ': ' .. (e or (answers and answers.errstr) or 'lookup unavailable')
-        else
+        elseif not answers.errcode then
             for _, a in ipairs(answers) do
                 local value = a.address or a.exchange or a.nsdname or a.cname or a.txt or a.rdata
                 if type(value) == 'table' then value=table.concat(value) end

@@ -23,9 +23,13 @@ function M.get_whois(target, deadline)
                     events[#events+1]={action=e.eventAction:sub(1,80),date=e.eventDate:sub(1,80)}
                 end
             end
+            local statuses={}
+            for _, status in ipairs(type(data.status)=='table' and data.status or {}) do
+                if type(status)=='string' and #statuses<20 then statuses[#statuses+1]=status:sub(1,120) end
+            end
             return {name=type(data.ldhName)=='string' and data.ldhName:sub(1,253) or target,
                 handle=type(data.handle)=='string' and data.handle:sub(1,200) or nil,
-                status=type(data.status)=='table' and data.status or {},events=events,source=host}
+                status=statuses,events=events,source=host}
         else return {error='RDAP returned HTTP '..res.status..'. Subdomains may not have a registration record.'} end
     end
     return {error='RDAP redirect limit reached.'}
