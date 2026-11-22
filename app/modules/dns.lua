@@ -1,52 +1,31 @@
-local resolver = require "resty.dns.resolver"
+local network = require 'network'
+local validator = require 'validator'
 local M = {}
-
-function M.resolve(target)
-    local r, err = resolver:new{
-        nameservers = {"8.8.8.8", {"8.8.4.4", 53}},
-        retrans = 5,
-        timeout = 2000,
-    }
-    if not r then
-        return "Failed to instantiate DNS resolver: " .. (err or "unknown")
-    end
-
-    local results = {}
-    
-    local function query_type(qtype, type_name)
-        local answers, err, tries = r:query(target, { qtype = qtype })
-        if not answers then
-            table.insert(results, type_name .. " Query failed: " .. (err or "unknown"))
-            return
-        end
-        if answers.errcode then
-            table.insert(results, type_name .. " Query server returned error code: " .. answers.errcode .. ": " .. answers.errstr)
-            return
-        end
-        
-        table.insert(results, type_name .. " Records:")
-        if #answers == 0 then
-            table.insert(results, "  (None)")
+function M.resolve(target, deadline)
+    if validator.is_ipv4(target) then return {records={}, note='DNS record queries apply to domain names.'} end
+    local r, err = network.resolver()
+    if not r then return {records={},error=err} end
+    local records, errors = {}, {}
+    local queries = {{1,'A',target},{28,'AAAA',target},{15,'MX',target},{2,'NS',target},{16,'TXT',target},{257,'CAA',target},{16,'DMARC','_dmarc.'..target}}
+    for _, query in ipairs(queries) do
+        if ngx.now() >= deadline then errors[#errors+1]='DNS time budget exceeded.'; break end
+        local answers, e = r:query(query[3], {qtype=query[1]})
+        if not answers or answers.errcode then
+            errors[#errors+1] = query[2] .. ': ' .. (e or (answers and answers.errstr) or 'lookup unavailable')
         else
-            for i, ans in ipairs(answers) do
-                if ans.address then
-                    table.insert(results, "  " .. ans.address)
-                elseif ans.cname then
-                    table.insert(results, "  CNAME " .. ans.cname)
-                elseif ans.exchange then
-                    table.insert(results, "  MX " .. ans.exchange .. " (pref: " .. ans.preference .. ")")
-                else
-                    table.insert(results, "  " .. (ans.rdata or "unknown record"))
+            for _, a in ipairs(answers) do
+                local value = a.address or a.exchange or a.nsdname or a.cname or a.txt or a.rdata
+                if type(value) == 'table' then value=table.concat(value) end
+                if value and #records < 150 then
+                    if query[1] == 257 and a.rdata then
+                        local data=a.rdata; local taglen=data:byte(2)
+                        if taglen and #data>=2+taglen then value=tostring(data:byte(1))..' '..data:sub(3,2+taglen)..' '..data:sub(3+taglen) end
+                    end
+                    records[#records+1]={type=a.cname and 'CNAME' or query[2],name=query[3],value=tostring(value):sub(1,4096),ttl=a.ttl,priority=a.preference}
                 end
             end
         end
     end
-
-    query_type(r.TYPE_A, "A")
-    query_type(r.TYPE_AAAA, "AAAA")
-    query_type(r.TYPE_MX, "MX")
-
-    return table.concat(results, "\n")
+    return {records=records,errors=errors}
 end
-
 return M

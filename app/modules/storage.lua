@@ -1,66 +1,106 @@
-local sqlite3 = require("lsqlite3")
+local sqlite = require 'lsqlite3'
+local json = require 'cjson.safe'
 local M = {}
-
-local db_path = ngx.config.prefix() .. "data/recon.db"
-
+local NULL = {}
+local path = ngx.config.prefix() .. 'data/recon.db'
+local function open()
+    local db = sqlite.open(path)
+    if not db then return nil, 'Database unavailable.' end
+    db:busy_timeout(100)
+    return db
+end
+local function query(sql, args, mode)
+    local db, err = open()
+    if not db then return nil, err end
+    local stmt = db:prepare(sql)
+    if not stmt then ngx.log(ngx.ERR, 'SQLite prepare: ', db:errmsg()); db:close(); return nil, 'Database query failed.' end
+    if args then
+        for i, value in ipairs(args) do
+            if value == NULL then stmt:bind(i, nil) else stmt:bind(i, value) end
+        end
+    end
+    local rows = {}
+    local code = stmt:step()
+    while code == sqlite.ROW do
+        rows[#rows + 1] = stmt:get_named_values()
+        code = stmt:step()
+    end
+    local id, changed = db:last_insert_rowid(), db:changes()
+    if code ~= sqlite.DONE then err = 'Database operation failed.'; ngx.log(ngx.ERR, 'SQLite step: ', db:errmsg()) end
+    stmt:finalize(); db:close()
+    if err then return nil, err end
+    if mode == 'insert' then return id end
+    if mode == 'change' then return changed end
+    return rows
+end
 function M.init()
-    local db = sqlite3.open(db_path)
-    if not db then return false end
-    
-    local create_table = [[
-        CREATE TABLE IF NOT EXISTS scans (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            target TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            dns_results TEXT,
-            http_headers TEXT,
-            tls_info TEXT,
-            endpoints TEXT,
-            whois_info TEXT,
-            status TEXT DEFAULT 'completed',
-            subdomains TEXT
-        );
-    ]]
-    db:exec(create_table)
-    db:close()
-    return true
-end
-
-function M.create_pending_scan(target)
-    local db = sqlite3.open(db_path)
-    if not db then return nil end
-    local stmt = db:prepare("INSERT INTO scans (target, status) VALUES (?, 'pending')")
-    if not stmt then db:close() return nil end
-    stmt:bind_values(target)
-    stmt:step()
-    local id = db:last_insert_rowid()
-    stmt:finalize()
-    db:close()
-    return id
-end
-
-function M.update_scan(id, dns_results, http_headers, tls_info, endpoints, whois_info, subdomains, status)
-    local db = sqlite3.open(db_path)
-    if not db then return false end
-    local stmt = db:prepare("UPDATE scans SET dns_results=?, http_headers=?, tls_info=?, endpoints=?, whois_info=?, subdomains=?, status=? WHERE id=?")
-    if not stmt then db:close() return false end
-    stmt:bind_values(dns_results, http_headers, tls_info, endpoints, whois_info, subdomains, status, id)
-    stmt:step()
-    stmt:finalize()
-    db:close()
-    return true
-end
-
-function M.get_history()
-    local db = sqlite3.open(db_path)
-    if not db then return {} end
-    
-    local history = {}
-    for row in db:nrows("SELECT * FROM scans ORDER BY timestamp DESC LIMIT 50") do
-        table.insert(history, row)
+    local db, err = open()
+    if not db then return nil, err end
+    local schema = [[CREATE TABLE IF NOT EXISTS scans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, dns_results TEXT,
+        http_headers TEXT, tls_info TEXT, endpoints TEXT, whois_info TEXT,
+        status TEXT DEFAULT 'completed', subdomains TEXT
+    );]]
+    if db:exec(schema) ~= sqlite.OK then db:close(); return nil, 'Cannot initialize database.' end
+    local columns = {}
+    for row in db:nrows('PRAGMA table_info(scans)') do columns[row.name] = true end
+    local additions = {owner='TEXT', profile="TEXT DEFAULT 'quick'", stage="TEXT DEFAULT 'queued'",
+        report='TEXT', favorite='INTEGER DEFAULT 0', score='INTEGER', duration_ms='INTEGER', created_epoch='INTEGER'}
+    for name, definition in pairs(additions) do
+        if not columns[name] and db:exec('ALTER TABLE scans ADD COLUMN ' .. name .. ' ' .. definition) ~= sqlite.OK then
+            db:close(); return nil, 'Database migration failed.' end
+    end
+    for _, sql in ipairs({"UPDATE scans SET created_epoch=CAST(strftime('%s', timestamp) AS INTEGER) WHERE created_epoch IS NULL",
+        'CREATE INDEX IF NOT EXISTS scans_owner_id ON scans(owner, id DESC)',
+        'CREATE INDEX IF NOT EXISTS scans_created ON scans(created_epoch)', 'PRAGMA journal_mode=WAL'}) do
+        if db:exec(sql) ~= sqlite.OK then db:close(); return nil, 'Database setup failed.' end
     end
     db:close()
-    return history
+    return true
 end
-
+function M.create(owner, target, profile)
+    return query("INSERT INTO scans(owner,target,profile,status,stage,created_epoch) VALUES (?,?,?,'pending','Resolving public addresses',?)", {owner,target,profile,ngx.time()}, 'insert')
+end
+function M.progress(id, stage)
+    return query("UPDATE scans SET stage=? WHERE id=? AND status='pending'", {stage,id}, 'change')
+end
+function M.finish(id, report, status, duration)
+    local encoded, err = json.encode(report)
+    if not encoded or #encoded > 262144 then return nil, err or 'Report is too large.' end
+    return query("UPDATE scans SET report=?,status=?,stage=?,score=?,duration_ms=? WHERE id=? AND status='pending'",
+        {encoded,status,status == 'failed' and 'Analysis failed' or 'Analysis finished',report.score or NULL,duration,id}, 'change')
+end
+function M.get(owner, id)
+    local rows, err = query('SELECT * FROM scans WHERE owner=? AND id=?', {owner,id})
+    if not rows then return nil, err end
+    local row = rows[1]
+    if row then
+        row.report = row.report and json.decode(row.report) or nil
+        for _, key in ipairs({'owner','dns_results','http_headers','tls_info','endpoints','whois_info','subdomains'}) do row[key] = nil end
+    end
+    return row
+end
+function M.history(owner, page)
+    return query('SELECT id,target,timestamp,status,profile,stage,favorite,score,duration_ms FROM scans WHERE owner=? ORDER BY id DESC LIMIT 50 OFFSET ?', {owner,(page-1)*50})
+end
+function M.count(owner)
+    local rows, err = query('SELECT COUNT(*) AS total FROM scans WHERE owner=?', {owner})
+    return rows and rows[1].total, err
+end
+function M.recent(owner, target, profile)
+    local rows, err = query("SELECT id,status FROM scans WHERE owner=? AND target=? AND profile=? AND (status='pending' OR (status IN ('completed','partial') AND created_epoch>?)) ORDER BY id DESC LIMIT 1", {owner,target,profile,ngx.time()-600})
+    return rows and rows[1], err
+end
+function M.favorite(owner,id,value)
+    return query('UPDATE scans SET favorite=? WHERE owner=? AND id=?', {value and 1 or 0,owner,id}, 'change')
+end
+function M.delete(owner,id)
+    return query("DELETE FROM scans WHERE owner=? AND id=? AND status!='pending'", {owner,id}, 'change')
+end
+function M.maintain()
+    local changed, err = query("UPDATE scans SET status='failed',stage='Interrupted or timed out' WHERE status='pending' AND created_epoch<?", {ngx.time()-120}, 'change')
+    if not changed then return nil, err end
+    return query("DELETE FROM scans WHERE status!='pending' AND (created_epoch<? OR id IN (SELECT id FROM scans WHERE status!='pending' ORDER BY id DESC LIMIT -1 OFFSET 5000))", {ngx.time()-2592000}, 'change')
+end
 return M

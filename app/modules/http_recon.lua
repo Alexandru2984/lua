@@ -1,74 +1,59 @@
-local http = require "resty.http"
+local network = require 'network'
 local M = {}
-
-function M.get_headers_and_endpoints(target)
-    local httpc = http.new()
-    local url = target
-    if not url:match("^https?://") then
-        url = "http://" .. target
+local controls = {
+    {'strict-transport-security','HSTS',20,'Use max-age=31536000 or longer after checking HTTPS coverage.'},
+    {'content-security-policy','Content Security Policy',25,'Restrict allowed sources and avoid unsafe-inline and unsafe-eval.'},
+    {'x-content-type-options','Content type protection',15,'Send X-Content-Type-Options: nosniff.'},
+    {'frame-protection','Frame protection',15,"Use CSP frame-ancestors or X-Frame-Options: DENY / SAMEORIGIN."},
+    {'referrer-policy','Referrer policy',10,'Set strict-origin-when-cross-origin, same-origin or no-referrer.'},
+    {'permissions-policy','Permissions policy',10,'Limit browser features the site does not need.'},
+    {'https','Verified HTTPS',5,'Serve HTTPS with a trusted certificate matching the hostname.'}
+}
+function M.assess(headers, verified)
+    local checks, score = {}, 0
+    for _, control in ipairs(controls) do
+        local key, value = control[1], headers[control[1]]
+        local pass, weak = false, false
+        if key == 'https' then value=verified and 'Certificate chain and hostname verified' or 'HTTPS unavailable'; pass=verified
+        elseif key == 'strict-transport-security' then
+            pass=verified and value and (tonumber(value:lower():match('max%-age%s*=%s*(%d+)')) or 0)>=31536000
+        elseif key == 'content-security-policy' then
+            pass=value and (value:find('default%-src%s') or value:find('script%-src%s')) and not value:find("'unsafe%-inline'") and not value:find("'unsafe%-eval'")
+        elseif key == 'x-content-type-options' then pass=value and value:lower()=='nosniff'
+        elseif key == 'frame-protection' then
+            value=headers['content-security-policy'] and headers['content-security-policy']:match('frame%-ancestors%s+([^;]+)') or headers['x-frame-options']
+            pass=value and (value:lower()=='deny' or value:lower()=='sameorigin' or (value:find("'none'",1,true) or value:find("'self'",1,true)) and not value:find('*',1,true))
+        elseif key == 'referrer-policy' then
+            pass=value and (value=='no-referrer' or value=='same-origin' or value=='strict-origin' or value=='strict-origin-when-cross-origin')
+        else pass=value and #value>0 end
+        weak=value and not pass
+        if pass then score=score+control[3] end
+        checks[#checks+1]={key=key,label=control[2],state=pass and 'pass' or (weak and 'review' or 'missing'),value=value,weight=control[3],advice=control[4]}
     end
-    
-    local res, err = httpc:request_uri(url, {
-        method = "GET",
-        ssl_verify = false,
-        headers = {
-            ["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PassiveRecon/1.0"
-        }
-    })
-
-    local headers_str = ""
-    local endpoints_str = ""
-
+    return checks, score
+end
+function M.analyze(target, ip, deadline)
+    local res, err = network.request(target,'/',{ip=ip,method='HEAD',deadline=math.min(deadline,ngx.now()+6)})
+    local tls_error, scheme = err, 'https'
     if not res then
-        headers_str = "Failed to connect: " .. (err or "unknown")
-    else
-        local h_list = {}
-        for k, v in pairs(res.headers) do
-            if type(v) == "table" then
-                table.insert(h_list, k .. ": " .. table.concat(v, ", "))
-            else
-                table.insert(h_list, k .. ": " .. v)
-            end
-        end
-        headers_str = table.concat(h_list, "\n")
-        
-        endpoints_str = "Checked " .. url .. " -> Status: " .. res.status
+        scheme='http'
+        res, err=network.request(target,'/',{ip=ip,method='HEAD',scheme='http',deadline=math.min(deadline,ngx.now()+4)})
     end
-
-    -- Check robots.txt
-    local robots_url = url .. "/robots.txt"
-    if url:sub(-1) == "/" then
-        robots_url = url .. "robots.txt"
+    if not res then return {error=err,tls={verified=false,error=tls_error},checks={},resources={}} end
+    if res.status==405 or res.status==501 then
+        local get=network.request(target,'/',{ip=ip,scheme=scheme,max_body=0,deadline=math.min(deadline,ngx.now()+4)})
+        if get then res=get end
     end
-    
-    local rob_res, rob_err = httpc:request_uri(robots_url, {
-        method = "GET",
-        ssl_verify = false,
-        headers = { ["User-Agent"] = "PassiveRecon/1.0" }
-    })
-    
-    if rob_res and rob_res.status == 200 then
-        endpoints_str = endpoints_str .. "\nFound robots.txt (length: " .. #(rob_res.body or "") .. " bytes)"
-    else
-        endpoints_str = endpoints_str .. "\nNo robots.txt found."
+    local checks, score=M.assess(res.headers,res.tls_verified)
+    local resources={}
+    for _, path in ipairs({'/robots.txt','/sitemap.xml','/.well-known/security.txt'}) do
+        if ngx.now()>=deadline then break end
+        local resource, e=network.request(target,path,{ip=ip,scheme=scheme,method='HEAD',deadline=math.min(deadline,ngx.now()+3)})
+        resources[#resources+1]={path=path,status=resource and resource.status,error=e,found=resource and resource.status==200 or false}
     end
-
-    return headers_str, endpoints_str
+    return {status=res.status,headers=res.headers,ip=ip,scheme=scheme,elapsed_ms=res.elapsed_ms,
+        redirect=res.headers.location,checks=checks,score=score,resources=resources,
+        tls={verified=res.tls_verified,hostname=target,error=res.tls_verified and nil or tls_error},
+        note='Headers are observed on the requested root response. Redirects are shown, not followed. The score is a header configuration indicator, not a vulnerability assessment.'}
 end
-
-function M.get_tls_info(target)
-    local host = target:gsub("^https?://", ""):gsub("/.*$", "")
-    
-    local cmd = "echo | timeout 5 openssl s_client -connect " .. host .. ":443 -servername " .. host .. " 2>/dev/null | openssl x509 -noout -subject -issuer -dates 2>/dev/null"
-    local f = io.popen(cmd)
-    if not f then return "Failed to run openssl" end
-    local output = f:read("*a")
-    f:close()
-    
-    if output == "" or not output then
-        return "No TLS info found or not an HTTPS target."
-    end
-    return output
-end
-
 return M

@@ -1,25 +1,33 @@
+-- RDAP replaces the blocking WHOIS subprocess. Every HTTPS redirect is validated
+-- and resolved through the same pinned public-IP client.
+local network = require 'network'
+local validator = require 'validator'
+local json = require 'cjson.safe'
 local M = {}
-
-function M.get_whois(target)
-    -- Remove protocol and path if present
-    local host = target:gsub("^https?://", ""):gsub("/.*$", "")
-    
-    local cmd = "timeout 5 whois " .. host .. " 2>&1"
-    local f = io.popen(cmd)
-    if not f then return "Failed to run whois command" end
-    
-    local output = f:read("*a")
-    f:close()
-    
-    if not output or output == "" then
-        return "No WHOIS info found."
+function M.get_whois(target, deadline)
+    local host, path='rdap.org', (validator.is_ipv4(target) and '/ip/' or '/domain/')..target
+    for _=1,4 do
+        local res, err=network.request(host,path,{max_body=131072,deadline=deadline})
+        if not res then return {error=err} end
+        if res.status==301 or res.status==302 or res.status==307 or res.status==308 then
+            local location=res.headers.location or ''
+            local newhost,newpath=location:match('^https://([^/]+)(/.*)$')
+            if not newhost or validator.sanitize_and_validate(newhost)~=newhost or newpath:find('[%c%s]') then return {error='RDAP returned an unsupported redirect.'} end
+            host,path=newhost,newpath
+        elseif res.status==200 then
+            local data=json.decode(res.body)
+            if type(data)~='table' then return {error='RDAP returned invalid JSON.'} end
+            local events={}
+            for _, e in ipairs(type(data.events)=='table' and data.events or {}) do
+                if type(e)=='table' and type(e.eventAction)=='string' and type(e.eventDate)=='string' and #events<20 then
+                    events[#events+1]={action=e.eventAction:sub(1,80),date=e.eventDate:sub(1,80)}
+                end
+            end
+            return {name=type(data.ldhName)=='string' and data.ldhName:sub(1,253) or target,
+                handle=type(data.handle)=='string' and data.handle:sub(1,200) or nil,
+                status=type(data.status)=='table' and data.status or {},events=events,source=host}
+        else return {error='RDAP returned HTTP '..res.status..'. Subdomains may not have a registration record.'} end
     end
-    
-    -- Truncate to 2000 chars to avoid massive DB blobs
-    if #output > 2000 then
-        return output:sub(1, 2000) .. "\n... (truncated)"
-    end
-    return output
+    return {error='RDAP redirect limit reached.'}
 end
-
 return M

@@ -1,177 +1,100 @@
-local validator = require "validator"
-local storage = require "storage"
-local cjson = require "cjson.safe"
-
--- Rate Limiting Logic
-local limit_dict = ngx.shared.rate_limit_store
-local client_ip = ngx.var.http_x_real_ip or ngx.var.remote_addr or "unknown"
-
-local count, err = limit_dict:incr(client_ip, 1, 0)
-if count == 1 then limit_dict:expire(client_ip, 60) end
-
-storage.init()
-
-local method = ngx.req.get_method()
-local error_msg = nil
-
-local function background_scan(premature, scan_id, target)
-    if premature then return end
-    
-    -- Requires need to be done inside timer callback context
-    local dns = require "dns"
-    local http_recon = require "http_recon"
-    local whois = require "whois"
-    local crtsh = require "crtsh"
-    local st = require "storage"
-    
-    local dns_res = dns.resolve(target)
-    local http_headers, endpoints = http_recon.get_headers_and_endpoints(target)
-    local tls_info = http_recon.get_tls_info(target)
-    local whois_info = whois.get_whois(target)
-    local subdomains = crtsh.get_subdomains(target)
-    
-    st.update_scan(scan_id, dns_res, http_headers, tls_info, endpoints, whois_info, subdomains, 'completed')
+local json=require 'cjson.safe'
+local storage=require 'storage'
+local session=require 'session'
+local method=ngx.req.get_method()
+local path=ngx.var.uri
+local function reply(status,data)
+    ngx.status=status
+    ngx.header.content_type='application/json; charset=utf-8'
+    ngx.header['Cache-Control']='private, no-store'
+    ngx.say(json.encode(data) or '{"error":"Response encoding failed."}')
 end
-
-if method == "POST" then
-    if count > 3 then
-        ngx.status = 429
-        ngx.header.content_type = "text/plain"
-        ngx.say("Rate limit exceeded. Please wait a minute before scanning again.")
-        return
-    end
-
+local function error_response(status,message) return reply(status,{error=message}) end
+if path=='/api/health' then
+    if method~='GET' then return error_response(405,'Method not allowed.') end
+    return reply(200,{status='ok'})
+end
+local bootstrap=path=='/api/bootstrap'
+local owner,csrf=session.get(bootstrap and method=='GET')
+if not owner then return error_response(401,'Your workspace session has expired. Reload this page.') end
+if method~='GET' and not session.check(csrf) then return error_response(403,'Request verification failed. Reload this page and retry.') end
+if bootstrap and method=='GET' then
+    return reply(200,{csrf=csrf,limits={per_minute=3,retention_days=30,cache_seconds=600},version='2.0'})
+end
+if path=='/api/scans' and method=='GET' then
+    local page=tonumber(ngx.var.arg_page or '1')
+    if not page or page%1~=0 or page<1 or page>100 then return error_response(400,'Invalid history page.') end
+    local rows,err=storage.history(owner,page)
+    local total,count_err=storage.count(owner)
+    if not rows or not total then return error_response(503,err or count_err) end
+    return reply(200,{scans=#rows>0 and rows or json.empty_array or {},total=total,page=page,page_size=50})
+end
+local function body()
+    if not (ngx.var.content_type or ''):match('^application/json%s*;?') then return nil,'Send application/json.' end
     ngx.req.read_body()
-    local args, err = ngx.req.get_post_args()
-    if not args then
-        ngx.say("Failed to get post args: ", err)
-        return
+    local raw=ngx.req.get_body_data()
+    if not raw or #raw>4096 then return nil,'Request body is missing or too large.' end
+    local value=json.decode(raw)
+    if type(value)~='table' then return nil,'Invalid JSON body.' end
+    return value
+end
+if path=='/api/scans' and method=='POST' then
+    local data,err=body()
+    if not data then return error_response(400,err) end
+    local target
+    target,err=require('validator').sanitize_and_validate(data.target)
+    if not target then return error_response(422,err) end
+    local profile=data.profile or 'quick'
+    if profile~='quick' and profile~='deep' then return error_response(422,'Choose a quick or deep scan.') end
+    if data.fresh~=nil and type(data.fresh)~='boolean' then return error_response(422,'Invalid cache option.') end
+    local recent,recent_err=storage.recent(owner,target,profile)
+    if recent_err then return error_response(503,recent_err) end
+    if recent and (recent.status=='pending' or not data.fresh) then return reply(200,{id=recent.id,cached=recent.status~='pending'}) end
+    local limits=ngx.shared.rate_limit_store
+    -- Only an outer proxy on loopback may set X-Real-IP; Nginx normalizes it
+    -- into remote_addr. Never consume arbitrary forwarded headers here.
+    local count=limits:incr('scan:'..ngx.var.remote_addr,1,0,60)
+    if not count then return error_response(503,'Scan limiter is busy. Try again shortly.') end
+    if count>3 then ngx.header['Retry-After']='60'; return error_response(429,'Three scans per minute are allowed. Please wait a minute.') end
+    local jobs=require 'jobs'
+    local acquired,message=jobs.acquire(owner)
+    if not acquired then ngx.header['Retry-After']='10'; return error_response(429,message) end
+    local id
+    id,err=storage.create(owner,target,profile)
+    if not id then jobs.release(owner); return error_response(503,err) end
+    local ok,timer_error=ngx.timer.at(0,jobs.run,id,owner,target,profile)
+    if not ok then
+        jobs.release(owner)
+        storage.finish(id,{error='Could not start the background scan.'},'failed',0)
+        ngx.log(ngx.ERR,'Scan timer: ',timer_error)
+        return error_response(503,'Could not start this scan. Please retry.')
     end
-
-    local target = args.target
-    if target and target ~= "" then
-        local safe_target, val_err = validator.sanitize_and_validate(target)
-        
-        if not safe_target then
-            error_msg = val_err
-        else
-            local scan_id = storage.create_pending_scan(safe_target)
-            if scan_id then
-                local ok, err = ngx.timer.at(0, background_scan, scan_id, safe_target)
-                if not ok then
-                    storage.update_scan(scan_id, "Failed to start background job: " .. err, "", "", "", "", "", "failed")
-                end
-            end
-            
-            ngx.redirect("/")
-            return
-        end
+    return reply(202,{id=id,cached=false})
+end
+local id=path:match('^/api/scans/(%d+)$')
+if id and #id<12 then
+    id=tonumber(id)
+    local row,err=storage.get(owner,id)
+    if err then return error_response(503,err) end
+    if not row then return error_response(404,'Report not found in this workspace.') end
+    if method=='GET' then return reply(200,row) end
+    if method=='DELETE' then
+        if row.status=='pending' then return error_response(409,'Wait for the scan to finish before deleting it.') end
+        local changed
+        changed,err=storage.delete(owner,id)
+        if not changed then return error_response(503,err) end
+        return reply(200,{deleted=true})
     end
-end
-
-local history = storage.get_history()
-
-if method == "GET" and ngx.var.arg_format == "json" then
-    ngx.header.content_type = "application/json"
-    ngx.say(cjson.encode(history) or "[]")
-    return
-end
-
-local has_pending = false
-for _, scan in ipairs(history) do
-    if scan.status == 'pending' then
-        has_pending = true
-        break
+    if method=='PATCH' then
+        local data,message=body()
+        if not data or type(data.favorite)~='boolean' then return error_response(400,message or 'A boolean favorite value is required.') end
+        local changed
+        changed,err=storage.favorite(owner,id,data.favorite)
+        if not changed then return error_response(503,err) end
+        return reply(200,{favorite=data.favorite})
     end
+    ngx.header.Allow='GET, PATCH, DELETE'
+    return error_response(405,'Method not allowed.')
 end
-
-ngx.header.content_type = "text/html"
-ngx.say([[
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Passive Recon Dashboard</title>
-]])
-
-if has_pending then
-    ngx.say([[<meta http-equiv="refresh" content="3">]])
-end
-
-ngx.say([[
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f9; color: #333; }
-        .container { max-width: 1000px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        h1, h2, h3 { color: #2c3e50; }
-        .form-group { margin-bottom: 15px; }
-        input[type="text"] { width: 70%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
-        button { padding: 10px 20px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #2980b9; }
-        button:disabled { background: #95a5a6; cursor: not-allowed; }
-        .scan-result { margin-top: 20px; border-top: 2px solid #eee; padding-top: 20px; }
-        pre { background: #2c3e50; color: #ecf0f1; padding: 10px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; max-height: 400px;}
-        .history-item { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 4px; background: #fafafa; }
-        .history-pending { border-left: 4px solid #f39c12; }
-        .history-completed { border-left: 4px solid #2ecc71; }
-        .history-failed { border-left: 4px solid #e74c3c; }
-        .error-msg { color: #e74c3c; font-weight: bold; background: #fadbd8; padding: 10px; border-radius: 4px; margin-bottom: 15px; }
-        .json-link { float: right; color: #3498db; text-decoration: none; font-weight: bold; }
-        .json-link:hover { text-decoration: underline; }
-        .badge { padding: 3px 8px; border-radius: 12px; font-size: 0.8em; color: white; font-weight: bold; }
-        .badge-pending { background-color: #f39c12; }
-        .badge-completed { background-color: #2ecc71; }
-        .badge-failed { background-color: #e74c3c; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <a href="/?format=json" class="json-link">Export as JSON</a>
-        <h1>Passive Recon Dashboard</h1>
-        <p>Enter a domain or IP for safe, passive reconnaissance.</p>
-]])
-
-if error_msg then
-    ngx.say("<div class='error-msg'>Error: " .. error_msg .. "</div>")
-end
-
-ngx.say([[
-        <form method="POST" action="/">
-            <div class="form-group">
-                <input type="text" name="target" placeholder="e.g., example.com" required>
-                <button type="submit" id="submitBtn">Scan</button>
-            </div>
-        </form>
-
-        <h2>Recent Scans</h2>
-]])
-
-if #history == 0 then
-    ngx.say("<p>No scans yet.</p>")
-else
-    for _, scan in ipairs(history) do
-        local status_class = "history-" .. (scan.status or "completed")
-        local badge_class = "badge-" .. (scan.status or "completed")
-        ngx.say("<div class='history-item " .. status_class .. "'>")
-        ngx.say("<h3>Target: " .. scan.target .. " <small>(" .. scan.timestamp .. ")</small> <span class='badge " .. badge_class .. "'>" .. string.upper(scan.status or "completed") .. "</span></h3>")
-        
-        if scan.status == 'pending' then
-            ngx.say("<p><em>Scan is currently running in the background. The page will refresh automatically...</em></p>")
-        else
-            ngx.say("<h4>DNS Records</h4><pre>" .. (scan.dns_results or "N/A") .. "</pre>")
-            ngx.say("<h4>Subdomains (crt.sh)</h4><pre>" .. (scan.subdomains or "N/A") .. "</pre>")
-            ngx.say("<h4>HTTP Headers & Endpoints</h4><pre>" .. (scan.http_headers or "") .. "\n" .. (scan.endpoints or "") .. "</pre>")
-            ngx.say("<h4>TLS Info</h4><pre>" .. (scan.tls_info or "N/A") .. "</pre>")
-            ngx.say("<h4>WHOIS</h4><pre>" .. (scan.whois_info or "N/A") .. "</pre>")
-        end
-        
-        ngx.say("</div>")
-    end
-end
-
-ngx.say([[
-    </div>
-    <div style="text-align: center; margin-top: 30px; margin-bottom: 20px; color: #7f8c8d; font-size: 0.9em;">
-        Passive Recon Dashboard v1.0.0 | OpenResty Lua Engine
-    </div>
-</body>
-</html>
-]])
+if path=='/api/scans' or bootstrap then ngx.header.Allow='GET, POST'; return error_response(405,'Method not allowed.') end
+return error_response(404,'Endpoint not found.')
