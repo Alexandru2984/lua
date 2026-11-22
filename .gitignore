@@ -1,0 +1,15 @@
+app/data/*
+app/logs/*
+app/*_temp/
+app/html/*
+*.db
+*.db-*
+*.sqlite*
+*.log
+.env
+.env.*
+node_modules/
+test-results/
+playwright-report/
+__pycache__/
+.DS_Store
