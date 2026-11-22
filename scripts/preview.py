@@ -2,6 +2,7 @@
 """Launch an isolated origin with a disposable DB; never touches production data."""
 import argparse
 import pathlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -34,7 +35,9 @@ with tempfile.TemporaryDirectory(prefix='lualens-test-') as tmp:
     text = text.replace('/run/recon-dashboard-canary/nginx.pid', str(prefix / 'nginx.pid'))
     text = text.replace('127.0.0.1:8084', f'127.0.0.1:{args.port}')
     text = text.replace('https://lua.micutu.com;', f'http://127.0.0.1:{args.port};')
-    text = text.replace(str(root / 'app/static'), str(prefix / 'static'))
+    # The source config names the production root. Override it independently of
+    # the checkout location, including GitHub's disposable runner directories.
+    text = re.sub(r'(?m)^(\s*)root\s+[^;]+;', lambda m: m[1] + 'root ' + str(prefix / 'static') + ';', text)
     config = prefix / 'nginx.conf'
     config.write_text(text)
     print(f'Isolated preview: http://127.0.0.1:{args.port}', flush=True)

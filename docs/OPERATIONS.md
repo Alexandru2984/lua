@@ -93,6 +93,8 @@ so take a fresh backup before doing it.
   Unix account and outbound firewall policy are useful later host-hardening work;
   changing that shared deployment identity was outside this app upgrade.
 
-CI is configured, not connected to any remote repository by this task. Push to an
-appropriate GitHub repository to run the hosted workflow. Production deployment
-is deliberately separate from CI and requires the existing VPS operating access.
+The upstream repository is `https://github.com/Alexandru2984/lua`, configured as
+`origin`; local `main` publishes there. Its original `recon-dashboard/` sources
+now live under `app/`. Both histories are preserved in a merge commit, and the
+workflow runs on pushes and pull requests. Production deployment is deliberately
+separate from CI and requires the existing VPS operating access.

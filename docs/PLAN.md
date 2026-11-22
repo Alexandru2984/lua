@@ -56,6 +56,7 @@ the regression suite passes (60 Lua tests, five JavaScript tests and five browse
 scenarios), desktop/mobile layouts were inspected, both Nginx layers were
 validated and gracefully reloaded, a live scan completed, the original six
 records were preserved, and the new paired-key backup was integrity-checked.
-GitHub CI is versioned and the same checks run locally; a hosted run awaits a
-remote repository. Public SEO acquisition and the roadmap items above remain
+GitHub CI is versioned and the same checks run locally. The original upstream
+`Alexandru2984/lua` is configured as `origin`, with both histories retained.
+Public SEO acquisition and the roadmap items above remain
 future releases, since authentication and noindex are intentionally retained.

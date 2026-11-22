@@ -70,7 +70,8 @@ Verification completed locally:
   tree. There are no production npm dependencies. This does not audit system
   packages, Lua modules or upstream services against all known advisories.
 - Backup script shell syntax, logrotate configuration and workflow YAML were
-  validated. Hosted GitHub CI has not run: this new repository has no remote.
+  validated. Upstream `Alexandru2984/lua` was subsequently linked as `origin`;
+  both the original upstream history and the local release history are retained.
 
 Production verification on 2026-11-23:
 
