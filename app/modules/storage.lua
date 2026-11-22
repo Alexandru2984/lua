@@ -101,6 +101,8 @@ end
 function M.maintain()
     local changed, err = query("UPDATE scans SET status='failed',stage='Interrupted or timed out' WHERE status='pending' AND created_epoch<?", {ngx.time()-120}, 'change')
     if not changed then return nil, err end
-    return query("DELETE FROM scans WHERE status!='pending' AND (created_epoch<? OR id IN (SELECT id FROM scans WHERE status!='pending' ORDER BY id DESC LIMIT -1 OFFSET 5000))", {ngx.time()-2592000}, 'change')
+    -- Original shared records have no owner. Preserve them as an offline legacy
+    -- archive rather than publishing them to a newly created browser workspace.
+    return query("DELETE FROM scans WHERE owner IS NOT NULL AND status!='pending' AND (created_epoch<? OR id IN (SELECT id FROM scans WHERE owner IS NOT NULL AND status!='pending' ORDER BY id DESC LIMIT -1 OFFSET 5000))", {ngx.time()-2592000}, 'change')
 end
 return M

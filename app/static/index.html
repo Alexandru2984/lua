@@ -1,1 +1,70 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LuaLens · Domain intelligence</title><link rel="stylesheet" href="/assets/app.css"><main><h1>LuaLens</h1><p>The domain intelligence workspace is being prepared.</p></main></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#101411">
+  <meta name="description" content="Understand a domain's DNS, HTTPS, security headers and public footprint in one private workspace. Compare reports and export your findings with LuaLens.">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <title>LuaLens — A clearer picture of every domain</title>
+  <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/app.css?v=2">
+  <script type="module" src="/assets/app.js?v=2"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <aside class="sidebar" aria-label="Workspace navigation">
+    <a class="brand" href="/" aria-label="LuaLens home"><span class="brand-mark" aria-hidden="true">λ</span> LuaLens<span class="brand-period">.</span></a>
+    <div class="workspace-label">YOUR WORKSPACE</div>
+    <nav>
+      <a class="nav-item active" href="#main"><span aria-hidden="true">◈</span> Overview</a>
+      <a class="nav-item" href="#history"><span aria-hidden="true">▤</span> Report history <span class="nav-count" id="nav-count">0</span></a>
+      <button class="nav-item" id="guide-button"><span aria-hidden="true">◎</span> How it works</button>
+    </nav>
+    <div class="sidebar-note"><span class="note-icon" aria-hidden="true">⌘</span><strong>A little more clarity.</strong><p>One domain. A connected view of its public footprint.</p><button class="text-button" id="demo-button">Explore an example</button></div>
+    <div class="sidebar-bottom"><span class="privacy-icon" aria-hidden="true">◇</span><div><strong>Private by default</strong><small>Reports stay in this browser's workspace.</small></div></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar"><div class="breadcrumbs"><span>Workspace</span><span class="breadcrumb-divider">/</span><strong>Overview</strong></div><div class="topbar-actions"><span class="engine-label">Built with Lua. Made for clarity.</span><button class="icon-button" id="theme-button" aria-label="Switch color theme" title="Switch color theme">◐</button><button class="icon-button" id="help-button" aria-label="Open help" title="How it works">?</button></div></header>
+    <main id="main" tabindex="-1">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy"><div class="eyebrow"><span class="tiny-line"></span> LOOK BENEATH THE SURFACE</div><h1 id="hero-title">Every domain.<br>A <span>clearer picture.</span></h1><p class="hero-description">Connect the dots between DNS, HTTPS and security.<br class="desktop-break"> Your next investigation starts with a domain.</p><div class="hero-tags"><span>DNS intelligence</span><span>Security signals</span><span>Public footprint</span></div></div>
+        <div class="orbit-visual" aria-hidden="true"><div class="orbit-grid"></div><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit orbit-three"></div><div class="orbit-core">λ</div><span class="orbit-label label-dns">DNS <span>◈</span></span><span class="orbit-label label-tls"><span>◇</span> HTTPS</span><span class="orbit-label label-ct">PUBLIC FOOTPRINT</span><div class="orbit-caption">A CONNECTED PERSPECTIVE</div></div>
+      </section>
+      <section class="scan-panel panel" aria-labelledby="scan-title">
+        <div class="section-heading"><div><h2 id="scan-title">Start with a domain</h2><p>A focused analysis. A useful next step.</p></div><span class="subtle-badge">NO INSTALLATION NEEDED</span></div>
+        <form id="scan-form">
+          <label class="sr-only" for="target">Domain or public IPv4 address</label>
+          <div class="scan-input-row"><div class="target-input"><span class="input-symbol" aria-hidden="true">◎</span><input id="target" name="target" type="text" placeholder="example.com" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="2048" required aria-describedby="target-hint"><kbd aria-hidden="true">/</kbd></div><button type="submit" class="primary-button" id="scan-submit"><span class="scan-button-icon" aria-hidden="true">⌕</span><span id="scan-submit-label">Analyze domain</span></button></div>
+          <div class="scan-options"><fieldset class="profile-selector"><legend class="sr-only">Analysis depth</legend><label><input type="radio" name="profile" value="quick" checked><span>Quick look <small>DNS + web</small></span></label><label><input type="radio" name="profile" value="deep"><span>Deep dive <small>+ CT & RDAP</small></span></label></fieldset><label class="fresh-option"><input type="checkbox" id="fresh"> Bypass recent cache</label></div>
+          <p class="input-hint" id="target-hint">Public domains and IPv4 only · 3 new scans per minute · Analyze systems you own or have permission to check.</p>
+        </form>
+        <div id="form-error" class="notice error" role="alert" hidden></div>
+        <div id="scan-progress" class="progress-area" role="status" aria-live="polite" hidden><div class="progress-label"><span class="spinner" aria-hidden="true"></span><strong id="progress-target">Analyzing</strong><span id="progress-time">0s</span></div><div class="indeterminate-track"><span></span></div><p id="progress-stage">Preparing your analysis…</p></div>
+      </section>
+      <div class="stats-grid" aria-label="Workspace statistics"><div class="stat-card"><span class="stat-icon" aria-hidden="true">▤</span><div><span class="stat-label">Workspace reports</span><strong id="stat-total">0</strong></div><span class="stat-note">30-day retention</span></div><div class="stat-card"><span class="stat-icon" aria-hidden="true">◈</span><div><span class="stat-label">Latest header score</span><strong id="stat-score">—</strong></div><span class="stat-note">Configuration signal</span></div><div class="stat-card"><span class="stat-icon" aria-hidden="true">☆</span><div><span class="stat-label">Saved on this page</span><strong id="stat-saved">0</strong></div><span class="stat-note">Your favorites</span></div></div>
+      <section id="report-section" class="panel report-panel" aria-labelledby="report-title" hidden>
+        <div id="demo-notice" class="demo-notice" hidden>EXAMPLE REPORT · Illustrative data to explore the workspace. Run a scan for live findings.</div>
+        <div class="report-heading"><div><div class="eyebrow">DOMAIN REPORT</div><h2 id="report-title"></h2><p id="report-meta"></p></div><div class="report-actions"><button class="secondary-button" id="rescan-button">Scan again</button><button class="secondary-button" id="compare-button">Compare</button><button class="secondary-button" id="export-json">JSON</button><button class="secondary-button" id="export-csv">CSV</button><button class="icon-button" id="close-report" aria-label="Close report">×</button></div></div>
+        <div id="report-summary"></div>
+        <div class="report-tabs" role="tablist" aria-label="Report sections"><button role="tab" aria-selected="true" aria-controls="report-content" id="tab-security" data-tab="security">Security</button><button role="tab" aria-selected="false" aria-controls="report-content" id="tab-dns" data-tab="dns" tabindex="-1">DNS records</button><button role="tab" aria-selected="false" aria-controls="report-content" id="tab-footprint" data-tab="footprint" tabindex="-1">Footprint</button><button role="tab" aria-selected="false" aria-controls="report-content" id="tab-headers" data-tab="headers" tabindex="-1">HTTP headers</button></div>
+        <div id="report-content" role="tabpanel" aria-labelledby="tab-security" tabindex="0"></div>
+      </section>
+      <section id="history" class="panel history-panel" aria-labelledby="history-title">
+        <div class="section-heading"><div><h2 id="history-title">Your investigations <span id="history-count" class="count-badge">0</span></h2><p>Pick up where you left off.</p></div><button class="secondary-button" id="refresh-button"><span aria-hidden="true">↻</span> Refresh</button></div>
+        <div class="history-toolbar"><div class="history-search"><span aria-hidden="true">⌕</span><label class="sr-only" for="history-search">Search domains on this page</label><input id="history-search" type="search" placeholder="Find a domain on this page…"></div><div class="history-filters"><label class="sr-only" for="status-filter">Filter by status</label><select id="status-filter"><option value="all">All statuses</option><option value="completed">Complete</option><option value="partial">Partial</option><option value="pending">Running</option><option value="failed">Failed</option></select><button class="filter-button" id="favorites-filter" aria-pressed="false">☆ <span>Favorites</span></button></div></div>
+        <div id="history-content" aria-live="polite"></div>
+        <div class="history-footer"><span id="history-page-label">Loading your workspace…</span><div class="pagination"><button class="icon-button" id="prev-page" aria-label="Previous history page" disabled>‹</button><button class="icon-button" id="next-page" aria-label="Next history page" disabled>›</button></div></div>
+      </section>
+      <div class="method-note"><span aria-hidden="true">◇</span><p><strong>Signals, with context.</strong> LuaLens makes a small number of DNS and web requests. Scores describe observed headers, and do not certify that a website is secure.</p></div>
+      <footer class="footer"><span><strong>LuaLens.</strong> Small language. Wider perspective.</span><button class="text-button" id="privacy-button">Privacy & limits</button></footer>
+    </main>
+  </div>
+  <dialog id="guide-dialog" aria-labelledby="guide-title"><div class="dialog-heading"><h2 id="guide-title">A clearer view, in a few checks.</h2><button class="icon-button" data-close="guide-dialog" aria-label="Close help">×</button></div><div class="guide-content"><p>Enter a domain or public IPv4 address. You can paste an HTTP(S) URL; LuaLens analyzes its hostname on the standard web ports.</p><div class="guide-step"><span>◈</span><div><h3>Quick look</h3><p>A, AAAA, MX, NS, TXT, CAA and DMARC records, verified HTTPS, seven header checks, robots.txt, sitemap.xml and security.txt.</p></div></div><div class="guide-step"><span>◎</span><div><h3>Deep dive</h3><p>Adds historical hostnames from certificate transparency and registration dates/status from RDAP. Providers can time out; unavailable checks are shown explicitly.</p></div></div><div class="guide-step"><span>▤</span><div><h3>Keep the useful parts</h3><p>Favorite reports, compare two reports for the same domain, copy records, and export JSON or a spreadsheet-friendly CSV.</p></div></div><div class="guide-step"><span>◇</span><div><h3>Your private workspace</h3><p>A secure cookie identifies this browser's workspace for 30 days. Clearing it loses access to its reports. Reports expire after 30 days; the service also keeps at most 5,000 finished reports globally. Favorites do not extend retention. There are no accounts or automatic scheduled scans.</p></div></div><p class="muted">Up to three new scans per minute per client, one active scan per workspace and three across the service. Recent results can be reused for ten minutes. DNS lookups and provider queries disclose the target to those providers. IPv6-only destinations are currently unsupported. This dashboard remains authenticated and excluded from search indexing.</p><div class="keyboard-hints"><kbd>/</kbd> Focus domain <kbd>Esc</kbd> Close dialog</div></div></dialog>
+  <dialog id="compare-dialog" aria-labelledby="compare-title"><div class="dialog-heading"><h2 id="compare-title">Compare investigations</h2><button class="icon-button" data-close="compare-dialog" aria-label="Close comparison">×</button></div><div class="compare-body"><p id="compare-description"></p><label for="compare-select">Previous report for this domain</label><div class="compare-controls"><select id="compare-select"></select><button class="primary-button" id="run-compare">Compare reports</button></div><div id="compare-result" aria-live="polite"></div></div></dialog>
+  <dialog id="delete-dialog" aria-labelledby="delete-title"><div class="dialog-heading"><h2 id="delete-title">Delete this report?</h2><button class="icon-button" data-close="delete-dialog" aria-label="Cancel deletion">×</button></div><div class="compare-body"><p id="delete-description"></p><p>This removes the report from your workspace.</p><div class="dialog-actions"><button class="secondary-button" data-close="delete-dialog">Keep report</button><button class="danger-button" id="confirm-delete">Delete report</button></div></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <noscript><p class="notice error">Enable JavaScript to use this private, interactive workspace.</p></noscript>
+</body>
+</html>
