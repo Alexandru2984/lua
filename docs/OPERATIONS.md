@@ -106,7 +106,9 @@ The additive `saved_targets` table uses workspace ownership, a unique
 Each workspace can save 50 domains; global storage is bounded at 5,000 entries
 with 30-day expiry measured from the last edit. Saving does not resolve or scan
 the domain. Latest-report metadata is joined only within the same workspace.
-The existing SQLite backup automatically includes this table.
+The existing SQLite backup automatically includes this table. A pre-upgrade
+database/key snapshot was also created under
+`/home/micu/backups/lualens-before-2.1-*`, with private directory/file permissions.
 
 `GET /api/targets`, `POST /api/targets` and `DELETE /api/targets/:id` provide the
 saved-domain API. Mutations use the existing cookie/CSRF/origin requirements.

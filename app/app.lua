@@ -3,11 +3,18 @@ local storage=require 'storage'
 local session=require 'session'
 local method=ngx.req.get_method()
 local path=ngx.var.uri
-local function reply(status,data)
+local function send(status,encoded)
+    if not encoded then status=500;encoded='{"error":"Response encoding failed."}' end
     ngx.status=status
     ngx.header.content_type='application/json; charset=utf-8'
     ngx.header['Cache-Control']='private, no-store'
-    ngx.say(json.encode(data) or '{"error":"Response encoding failed."}')
+    ngx.say(encoded)
+end
+local function reply(status,data)
+    return send(status,json.encode(data))
+end
+local function collection(name,rows,metadata)
+    return send(200,require('json_response').collection(name,rows,metadata))
 end
 local function error_response(status,message) return reply(status,{error=message}) end
 if path=='/api/health' then
@@ -35,7 +42,7 @@ if path=='/api/scans' and method=='GET' then
     local rows,err=storage.history(owner,page,target)
     local total,count_err=storage.count(owner,target)
     if not rows or not total then return error_response(503,err or count_err) end
-    return reply(200,{scans=#rows>0 and rows or json.empty_array or {},total=total,page=page,page_size=50})
+    return collection('scans',rows,{total=total,page=page,page_size=50})
 end
 local function body()
     local content_type=(ngx.var.content_type or ''):lower():match('^%s*([^;%s]+)')
@@ -51,7 +58,7 @@ if path=='/api/targets' then
     if method=='GET' then
         local rows,err=storage.targets(owner)
         if not rows then return error_response(503,err) end
-        return reply(200,{targets=#rows>0 and rows or json.empty_array or {},limit=50})
+        return collection('targets',rows,{limit=50})
     end
     if method=='POST' then
         local data,err=body()

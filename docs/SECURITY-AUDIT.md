@@ -135,5 +135,14 @@ successful PDF output. Markdown fences withstand hostile backticks; CSV retains
 formula protection and now includes MX priority. The frontend also remains
 usable with a 2.0 bootstrap during a graceful backend reload.
 
-Local release checks now total 109: 90 Lua, 11 JavaScript and eight browser
+Local release checks now total 113: 94 Lua, 11 JavaScript and eight browser
 scenarios. The existing residual limits above remain applicable.
+
+Empty scan/domain collections now serialize as arrays on both the LuaRocks and
+distribution cjson implementations, without relying on fork-specific sentinels.
+Four regression tests cover this contract, escaped fields, invalid array shapes
+and encoding failures; the distribution module was also checked directly.
+
+The installed 2.1 release passed a real saved-domain/scan/history/link smoke test
+with verified HTTPS and four DNS observations. Its temporary records were
+removed, SQLite integrity passed, and all six legacy records remain intact.

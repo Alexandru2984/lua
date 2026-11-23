@@ -73,6 +73,7 @@ future releases, since authentication and noindex are intentionally retained.
   not alter the HTTP header score.
 - Added offline complete HTML reports, browser printing/PDF, Markdown exports,
   and clipboard summaries. CSV now preserves MX priorities.
-- Local release checks: 90 Lua tests, 11 JavaScript tests and eight browser
+- Local release checks: 94 Lua tests, 11 JavaScript tests and eight browser
   scenarios, including offline HTML/PDF, malicious content and old-bootstrap
-  compatibility. Production and upstream verification follows release checks.
+  compatibility. The release is installed on the VPS; a real scan verified saved
+  domains, report links and all four DNS observations. GitHub checks run on push.
