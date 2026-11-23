@@ -50,6 +50,10 @@ function M.run(premature, id, owner, target, profile)
             end
         end
         report.score=report.http.score
+        if report.http.tls and report.http.tls.metadata_error then report.errors[#report.errors+1]='TLS details: '..report.http.tls.metadata_error end
+        for _,resource in ipairs(report.http.resources or {}) do
+            if resource.error then report.errors[#report.errors+1]=resource.path..': '..resource.error end
+        end
         report.dns.insights=require('dns_insights').analyze(target,report.dns)
         local status=#report.errors>0 and 'partial' or 'completed'
         if report.http.error and #(report.dns.records or {})==0 then status='failed' end

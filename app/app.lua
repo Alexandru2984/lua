@@ -28,7 +28,19 @@ if not owner then return error_response(401,'Your workspace session has expired.
 if method~='GET' and not session.check(csrf) then return error_response(403,'Request verification failed. Reload this page and retry.') end
 if bootstrap and method=='GET' then
     if ngx.var.http_sec_fetch_site=='cross-site' then return error_response(403,'Open the workspace directly to begin.') end
-    return reply(200,{csrf=csrf,limits={per_minute=3,retention_days=30,cache_seconds=600,saved_targets=50},capabilities={saved_targets=true},version='2.1'})
+    return reply(200,{csrf=csrf,limits={per_minute=3,retention_days=30,cache_seconds=600,saved_targets=50},capabilities={saved_targets=true,domain_history=true,tls_details=true},version='2.2'})
+end
+if path=='/api/domain-history' and method=='GET' then
+    local target,err=require('validator').sanitize_and_validate(ngx.var.arg_target)
+    if not target then return error_response(422,err) end
+    local before=ngx.var.arg_before
+    if before then
+        if #before>11 or not before:match('^%d+$') or tonumber(before)<1 then return error_response(400,'Invalid history cursor.') end
+        before=tonumber(before)
+    end
+    local rows,message,more=storage.domain_history(owner,target,before)
+    if not rows then return error_response(503,message) end
+    return collection('scans',rows,{target=target,has_more=more})
 end
 if path=='/api/scans' and method=='GET' then
     local page=tonumber(ngx.var.arg_page or '1')
@@ -145,5 +157,6 @@ if id and #id<12 then
     ngx.header.Allow='GET, PATCH, DELETE'
     return error_response(405,'Method not allowed.')
 end
+if path=='/api/domain-history' then ngx.header.Allow='GET';return error_response(405,'Method not allowed.') end
 if path=='/api/scans' or bootstrap then ngx.header.Allow=bootstrap and 'GET' or 'GET, POST'; return error_response(405,'Method not allowed.') end
 return error_response(404,'Endpoint not found.')

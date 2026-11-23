@@ -61,13 +61,16 @@ function M.request(host, path, opts)
     local function fail(message) sock:close() return nil, message end
     if not remaining() then return fail("Request budget exceeded.") end
     local secure = opts.scheme ~= "http"
-    local ok
+    local ok,certificate,metadata_error
     ok, err = sock:connect(ip, secure and 443 or 80)
     if not ok then return fail("Connection failed: " .. (err or "unknown")) end
     if secure then
         if not remaining() then return fail("Request budget exceeded.") end
         ok, err = sock:sslhandshake(nil, host, true)
         if not ok then return fail("TLS verification failed: " .. (err or "unknown")) end
+        if opts.capture_tls then
+            certificate,metadata_error=require('tls_metadata').inspect(ok,ngx.time())
+        end
     end
     if not remaining() then return fail("Request budget exceeded.") end
     local method = opts.method == "HEAD" and "HEAD" or "GET"
@@ -93,7 +96,8 @@ function M.request(host, path, opts)
         end
     end
     local res = { status = status, headers = headers, body = "", ip = ip,
-        tls_verified = secure, elapsed_ms = math.floor((ngx.now() - started) * 1000) }
+        tls_verified = secure, certificate=certificate,tls_metadata_error=metadata_error,
+        elapsed_ms = math.floor((ngx.now() - started) * 1000) }
     if method == "HEAD" or status == 204 or status == 304 or opts.max_body == 0 then sock:close() return res end
     local max_body = opts.max_body or 65536
     local chunks, size = {}, 0

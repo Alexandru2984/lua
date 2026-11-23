@@ -46,7 +46,8 @@ function M.init()
     local columns = {}
     for row in db:nrows('PRAGMA table_info(scans)') do columns[row.name] = true end
     local additions = {owner='TEXT', profile="TEXT DEFAULT 'quick'", stage="TEXT DEFAULT 'queued'",
-        report='TEXT', favorite='INTEGER DEFAULT 0', score='INTEGER', duration_ms='INTEGER', created_epoch='INTEGER'}
+        report='TEXT', favorite='INTEGER DEFAULT 0', score='INTEGER', duration_ms='INTEGER', created_epoch='INTEGER',
+        dns_count='INTEGER',http_status='INTEGER',tls_verified='INTEGER',certificate_not_after='INTEGER',certificate_sha256='TEXT'}
     for name, definition in pairs(additions) do
         if not columns[name] and db:exec('ALTER TABLE scans ADD COLUMN ' .. name .. ' ' .. definition) ~= sqlite.OK then
             db:close(); return nil, 'Database migration failed.' end
@@ -75,8 +76,17 @@ end
 function M.finish(id, report, status, duration)
     local encoded, err = json.encode(report)
     if not encoded or #encoded > 262144 then return nil, err or 'Report is too large.' end
-    return query("UPDATE scans SET report=?,status=?,stage=?,score=?,duration_ms=? WHERE id=? AND status='pending'",
-        {encoded,status,status == 'failed' and 'Analysis failed' or 'Analysis finished',report.score or NULL,duration,id}, 'change')
+    local http=report.http or {}
+    local tls=http.tls or {}
+    local cert=tls.certificate or {}
+    local dns=report.dns or {}
+    local verified=NULL
+    if type(tls.verified)=='boolean' then verified=tls.verified and 1 or 0 end
+    return query([[UPDATE scans SET report=?,status=?,stage=?,score=?,duration_ms=?,dns_count=?,http_status=?,
+        tls_verified=?,certificate_not_after=?,certificate_sha256=? WHERE id=? AND status='pending']],
+        {encoded,status,status == 'failed' and 'Analysis failed' or 'Analysis finished',report.score or NULL,duration,
+        type(dns.records)=='table' and #dns.records or NULL,http.status or NULL,verified,cert.not_after or NULL,
+        cert.fingerprint_sha256 or NULL,id}, 'change')
 end
 function M.get(owner, id)
     local rows, err = query('SELECT * FROM scans WHERE owner=? AND id=?', {owner,id})
@@ -95,6 +105,18 @@ function M.history(owner, page, target)
     args[#args+1]=(page-1)*50
     return query('SELECT id,target,timestamp,status,profile,stage,favorite,score,duration_ms FROM scans WHERE owner=?'..filter..' ORDER BY id DESC LIMIT 50 OFFSET ?', args)
 end
+function M.domain_history(owner,target,before_id)
+    local args={owner,target}
+    local filter=''
+    if before_id then filter=' AND id<?';args[#args+1]=before_id end
+    local rows,err=query([[SELECT id,target,timestamp,created_epoch,status,profile,stage,score,duration_ms,
+        dns_count,http_status,tls_verified,certificate_not_after,certificate_sha256
+        FROM scans WHERE owner=? AND target=?]]..filter..' ORDER BY id DESC LIMIT 51',args)
+    if not rows then return nil,err end
+    local more=#rows>50
+    if more then table.remove(rows) end
+    return rows,nil,more
+end
 function M.count(owner, target)
     local args={owner}
     local filter=''
@@ -103,13 +125,13 @@ function M.count(owner, target)
     return rows and rows[1].total, err
 end
 function M.healthy()
-    local rows=query('SELECT owner,report FROM scans LIMIT 1')
+    local rows=query('SELECT owner,report,dns_count,http_status,tls_verified,certificate_not_after,certificate_sha256 FROM scans LIMIT 1')
     return rows ~= nil and query('SELECT id FROM saved_targets LIMIT 0') ~= nil
 end
 function M.targets(owner)
     return query([[SELECT t.id,t.target,t.label,t.profile,t.created_epoch,t.updated_epoch,
         s.id AS last_scan_id,s.timestamp AS last_scan_timestamp,
-        s.status AS last_scan_status,s.score AS last_score
+        s.status AS last_scan_status,s.score AS last_score,s.certificate_not_after AS last_certificate_not_after
         FROM saved_targets t LEFT JOIN scans s ON s.id=(
             SELECT id FROM scans WHERE owner=t.owner AND target=t.target ORDER BY id DESC LIMIT 1)
         WHERE t.owner=? ORDER BY t.updated_epoch DESC,t.id DESC LIMIT 50]], {owner})

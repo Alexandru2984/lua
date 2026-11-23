@@ -49,7 +49,7 @@ function M.assess(headers, verified)
     return checks, score
 end
 function M.analyze(target, ip, deadline)
-    local res, err = network.request(target,'/',{ip=ip,method='HEAD',deadline=math.min(deadline,ngx.now()+6)})
+    local res, err = network.request(target,'/',{ip=ip,method='HEAD',capture_tls=true,deadline=math.min(deadline,ngx.now()+6)})
     local tls_error, scheme = err, 'https'
     if not res then
         scheme='http'
@@ -57,19 +57,20 @@ function M.analyze(target, ip, deadline)
     end
     if not res then return {error=err,tls={verified=false,error=tls_error},checks={},resources={}} end
     if res.status==405 or res.status==501 then
-        local get=network.request(target,'/',{ip=ip,scheme=scheme,max_body=0,deadline=math.min(deadline,ngx.now()+4)})
+        local get=network.request(target,'/',{ip=ip,scheme=scheme,capture_tls=scheme=='https',max_body=0,deadline=math.min(deadline,ngx.now()+4)})
         if get then res=get end
     end
     local checks, score=M.assess(res.headers,res.tls_verified)
     local resources={}
     for _, path in ipairs({'/robots.txt','/sitemap.xml','/.well-known/security.txt'}) do
-        if ngx.now()>=deadline then break end
-        local resource, e=network.request(target,path,{ip=ip,scheme=scheme,method='HEAD',deadline=math.min(deadline,ngx.now()+3)})
+        local resource,e
+        if ngx.now()>=deadline then e='Request budget exceeded.'
+        else resource,e=network.request(target,path,{ip=ip,scheme=scheme,method='HEAD',deadline=math.min(deadline,ngx.now()+3)}) end
         resources[#resources+1]={path=path,status=resource and resource.status,error=e,found=resource and resource.status==200 or false}
     end
     return {status=res.status,headers=res.headers,ip=ip,scheme=scheme,elapsed_ms=res.elapsed_ms,
         redirect=res.headers.location,checks=checks,score=score,resources=resources,
-        tls={verified=res.tls_verified,hostname=target,error=res.tls_verified and nil or tls_error},
+        tls={verified=res.tls_verified,hostname=target,certificate=res.certificate,metadata_error=res.tls_metadata_error,error=res.tls_verified and nil or tls_error},
         note='Headers are observed on the requested root response. Redirects are shown, not followed. The score is a header configuration indicator, not a vulnerability assessment.'}
 end
 return M

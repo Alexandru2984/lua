@@ -1,6 +1,7 @@
 -- Used exclusively in a copied, disposable preview via --fixtures.
 local M={}
 local count=0
+local scans={}
 function M.resolve_public(host)
     if host=='rebind.example.com' then return nil,'DNS points to a blocked IP address.' end
     return '93.184.215.14'
@@ -22,13 +23,23 @@ end
 function M.request(host,path,opts)
     count=count+1
     if host=='timeout.example.com' then return nil,'Connection timed out.' end
+    if host=='resourcefailed.example.com' and path~='/' then return nil,'Resource request timed out.' end
     if host=='crt.sh' then return {status=200,body='[{"name_value":"www.example.com\\n*.example.com\\n<script>.example.com\\nevil-example.com"}]'} end
     if host=='rdap.org' then return {status=302,headers={location='https://registry.example.com/domain/example.com'},body=''} end
     if host=='registry.example.com' then return {status=200,body='{"ldhName":"EXAMPLE.COM","events":[{"eventAction":"registration","eventDate":"1995-08-14T00:00:00Z"}],"status":["active"]}'} end
+    local certificate
+    if path=='/' and opts and opts.capture_tls and opts.scheme~='http' then
+        scans[host]=(scans[host] or 0)+1
+        local now=ngx.time()
+        local days=host=='near-expiry.example.com' and 5 or 60
+        certificate={subject_cn=host,issuer_cn='Fixture CA',not_before=now-86400,not_after=now+days*86400,
+            observed_at=now,fingerprint_sha256=string.format('%064x',scans[host]),protocol='TLS 1.3',
+            cipher='TLS_AES_256_GCM_SHA384',validity_at_scan=days<=7 and 'urgent' or 'valid',days_remaining_at_scan=days}
+    end
     return {status=path=='/' and 200 or 404,headers={['content-type']='text/html',
         ['strict-transport-security']='max-age=31536000',['x-content-type-options']='nosniff',
         ['content-security-policy']="default-src 'self'; frame-ancestors 'none'",['referrer-policy']='no-referrer',
         ['permissions-policy']='camera=()', ['x-danger']='<img src=x onerror="window.__xss=1">', ['x-formula']='=HYPERLINK("https://attacker.example")', ['x-observation']=tostring(count)},
-        body='',ip='93.184.215.14',tls_verified=not opts or opts.scheme~='http',elapsed_ms=10}
+        body='',ip='93.184.215.14',tls_verified=not opts or opts.scheme~='http',certificate=certificate,elapsed_ms=10}
 end
 return M
