@@ -5,14 +5,16 @@ function M.resolve(target, deadline)
     if validator.is_ipv4(target) then return {records={}, note='DNS record queries apply to domain names.'} end
     local r, err = network.resolver()
     if not r then return {records={},error=err} end
-    local records, errors = {}, {}
+    local records, errors, query_status = {}, {}, {}
     local queries = {{1,'A',target},{28,'AAAA',target},{15,'MX',target},{2,'NS',target},{16,'TXT',target},{257,'CAA',target},{16,'DMARC','_dmarc.'..target}}
     for _, query in ipairs(queries) do
         if ngx.now() >= deadline then errors[#errors+1]='DNS time budget exceeded.'; break end
         local answers, e = r:query(query[3], {qtype=query[1]})
         if not answers or (answers.errcode and answers.errcode~=3) then
+            query_status[query[2]]='error'
             errors[#errors+1] = query[2] .. ': ' .. (e or (answers and answers.errstr) or 'lookup unavailable')
         elseif not answers.errcode then
+            query_status[query[2]]='answered'
             for _, a in ipairs(answers) do
                 local value = a.address or a.exchange or a.nsdname or a.cname or a.txt or a.rdata
                 if type(value) == 'table' then value=table.concat(value) end
@@ -24,8 +26,10 @@ function M.resolve(target, deadline)
                     records[#records+1]={type=a.cname and 'CNAME' or query[2],name=query[3],value=tostring(value):sub(1,4096),ttl=a.ttl,priority=a.preference}
                 end
             end
+        else
+            query_status[query[2]]='absent'
         end
     end
-    return {records=records,errors=errors}
+    return {records=records,errors=errors,query_status=query_status}
 end
 return M

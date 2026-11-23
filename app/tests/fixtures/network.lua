@@ -8,6 +8,7 @@ end
 function M.resolver()
     local r={TYPE_A=1}
     function r:query(host,opts)
+        if host=='dnsfailed.example.com' or host=='_dmarc.dnsfailed.example.com' then return nil,'timeout' end
         local t=opts.qtype
         if t==1 then return {{address='93.184.215.14',type=1,ttl=300}} end
         if t==28 then return {{address='2606:2800::1',type=28,ttl=300}} end

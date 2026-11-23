@@ -8,7 +8,7 @@ app/html/*
 *.log
 .env
 .env.*
-node_modules/
+node_modules
 test-results/
 playwright-report/
 __pycache__/

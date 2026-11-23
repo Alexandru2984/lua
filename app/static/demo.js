@@ -15,3 +15,9 @@ export const demo = {
     transparency:{names:['example.com','mail.example.com','www.example.com'],source:'crt.sh'},
     registration:{name:'EXAMPLE.COM',source:'Illustrative RDAP response',status:['client transfer prohibited'],events:[{action:'registration',date:'1995-08-14T04:00:00Z'},{action:'expiration',date:'2027-08-13T04:00:00Z'}]}}
 };
+demo.report.dns.insights=[
+  {key:'spf',label:'SPF policy',state:'observed',summary:'An explicit -all fail mechanism was observed.',value:'v=spf1 -all',advice:'Illustrative direct TXT observation; SPF includes and sending IPs are not evaluated.'},
+  {key:'dmarc',label:'DMARC policy',state:'observed',summary:'A direct p=reject policy was observed.',value:'v=DMARC1; p=reject',advice:'Only a direct policy is illustrated. Parent policy, alignment and message authentication are not evaluated.'},
+  {key:'caa',label:'CAA records',state:'info',summary:'No direct CAA records were observed; a parent policy may apply.',advice:'Presence or absence alone does not establish effective issuance restrictions.'},
+  {key:'mx',label:'Mail routing',state:'observed',summary:'One mail exchanger was observed.',value:'10 mail.example.com',advice:'No mail server connections or delivery tests are made.'}
+];

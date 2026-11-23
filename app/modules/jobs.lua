@@ -50,8 +50,9 @@ function M.run(premature, id, owner, target, profile)
             end
         end
         report.score=report.http.score
+        report.dns.insights=require('dns_insights').analyze(target,report.dns)
         local status=#report.errors>0 and 'partial' or 'completed'
-        if report.http.error and #report.dns.records==0 then status='failed' end
+        if report.http.error and #(report.dns.records or {})==0 then status='failed' end
         assert(storage.finish(id,report,status,math.floor((ngx.now()-started)*1000)))
     end, debug.traceback)
     M.release(owner)

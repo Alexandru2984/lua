@@ -11,6 +11,7 @@ export function reportRows(scan) {
   const r = scan.report || {};
   const rows = [['section', 'key', 'value'], ['report', 'target', scan.target], ['report', 'status', scan.status], ['report', 'timestamp_utc', scan.timestamp], ['report', 'header_score', hasScore(r.score) ? r.score : 'unavailable']];
   for (const d of list(r.dns?.records)) rows.push(['dns', d.type + ' ' + d.name, d.value]);
+  for (const d of list(r.dns?.insights)) rows.push(['dns_policy',d.label,d.state+': '+d.summary+(d.value?'\n'+d.value:'')]);
   for (const [key, value] of Object.entries(r.http?.headers || {})) rows.push(['http', key, value]);
   for (const c of list(r.http?.checks)) rows.push(['security', c.label, c.state + ': ' + (c.value || c.advice)]);
   for (const e of list(r.http?.resources)) rows.push(['resource', e.path, e.error || e.status]);

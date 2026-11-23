@@ -91,6 +91,7 @@ test('Deep scans return validated CT and registration data',async()=>{
   const {ctx,page}=await context('8.8.4.41');
   await page.locator('#target').fill('example.com');await page.locator('input[value=deep]').check();await page.locator('#scan-submit').click();await finished(page);
   await page.locator('#tab-footprint').click();const text=await page.locator('#report-content').textContent();assert.match(text,/www.example.com/);assert.match(text,/1995-08-14/);assert.ok(!text.includes('<script>'));assert.ok(!text.includes('evil-example.com'));
+  await page.locator('#tab-email').click();assert.equal(await page.locator('.insight-summary').count(),4);assert.match(await page.locator('#report-content').textContent(),/explicit -all/);assert.match(await page.locator('#report-content').textContent(),/direct p=reject/);
   await ctx.close();
 });
 test('Mobile layouts, accessible tabs, dialogs, keyboard and demo need no scan allowance',async()=>{
@@ -132,4 +133,13 @@ test('Saved domains persist, stay private, and start a scan only on request',asy
   await page.setViewportSize({width:390,height:844});await page.screenshot({path:'test-results/saved-domains-mobile.png',fullPage:true});
   await page.getByRole('button',{name:'Remove saved domain example.com',exact:true}).click();await page.waitForFunction(()=>document.getElementById('saved-target-count').textContent==='0');assert.equal(await page.locator('#stat-total').textContent(),'1');
   await ctx.close();await other.ctx.close();
+});
+test('Failed DNS lookups remain unavailable independently of a successful HTTP score',async()=>{
+  const {ctx,page}=await context('8.8.4.71',{width:390,height:844});
+  await page.locator('#target').fill('dnsfailed.example.com');await page.locator('#scan-submit').click();await finished(page);
+  await page.locator('#tab-email').click();assert.equal(await page.locator('#report-content .check-status').count(),4);
+  for(const text of await page.locator('#report-content .check-status').allTextContents())assert.equal(text,'Unavailable');
+  assert.equal(await page.locator('#report-summary .status-partial').count(),1);assert.match(await page.locator('#report-summary').textContent(),/100/);
+  assert.ok(!(await page.locator('#report-content').textContent()).includes('No SPF record'));
+  await page.screenshot({path:'test-results/dns-policy-unavailable-mobile.png',fullPage:true});await ctx.close();
 });

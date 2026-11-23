@@ -207,6 +207,11 @@ function renderTab() {
     if(!checks.length) {out.replaceChildren(message(http.error || r.error || 'No HTTP security observations are available for this report.'));return;}
     out.replaceChildren(el('div',{class:'check-grid'},...checks.map(c=>el('article',{class:'check-card'},el('div',{class:'check-heading'},el('h3',{},c.label),el('span',{class:'check-status '+(c.state==='pass'?'pass':'')},c.state==='pass'?'✓ Configured':c.state==='review'?'Review value':'Missing')),c.value?el('code',{},c.value):null,el('p',{},c.advice)))));
     if(http.redirect) out.append(el('p',{class:'notice warning'},'This response redirects to '+http.redirect+'. Headers above belong to the initial response.'));
+  } else if(state.tab==='email') {
+    const insights=list(r.dns?.insights);
+    if(!insights.length){out.replaceChildren(message('This older report does not include DNS policy observations. Run a new scan to collect them.'));return;}
+    const labels={observed:'Observed',review:'Review',info:'For context',unavailable:'Unavailable'};
+    out.replaceChildren(el('p',{class:'insight-intro'},'Direct DNS observations, with context. These checks do not alter the HTTP header score or validate a message, mail server or inherited policy.'),el('div',{class:'check-grid'},...insights.map(c=>el('article',{class:'check-card'},el('div',{class:'check-heading'},el('h3',{},c.label),el('span',{class:'check-status '+(c.state==='observed'?'pass':'')},labels[c.state]||'For context')),el('h4',{class:'insight-summary'},c.summary),c.value?el('code',{},c.value):null,el('p',{},c.advice)))));
   } else if(state.tab==='dns') {
     const records=list(r.dns?.records);
     const input=el('input',{type:'search',placeholder:'Filter type, name or value…','aria-label':'Filter DNS records'});
