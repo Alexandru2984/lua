@@ -1,7 +1,7 @@
 import { list, hasScore, reportCsv, compareReports } from './report.js?v=2';
 import { demo } from './demo.js?v=2';
 const $ = id => document.getElementById(id);
-const state = {csrf:null, scans:[], total:0, page:1, selected:null, tab:'security', favorites:false, pending:null, busy:false, deleteId:null, historySeq:0, reportSeq:0};
+const state = {csrf:null, scans:[], targets:[], total:0, page:1, selected:null, tab:'security', favorites:false, pending:null, busy:false, deleteId:null, historySeq:0, reportSeq:0};
 function el(tag, attrs = {}, ...children) {
   const n = document.createElement(tag);
   for (const [key,value] of Object.entries(attrs)) {
@@ -84,6 +84,46 @@ async function refreshHistory(silent=false) {
 function setBusy(busy) {
   state.busy=busy; $('scan-submit').disabled=busy;
   $('scan-submit-label').textContent=busy ? 'Analysis in progress' : 'Analyze domain';
+  for (const button of document.querySelectorAll('[data-run-target]')) button.disabled=busy;
+}
+function renderTargets() {
+  $('saved-target-count').textContent=state.targets.length;
+  if(!state.targets.length) {
+    $('saved-targets-content').replaceChildren(el('div',{class:'saved-targets-empty'},el('span',{'aria-hidden':'true'},'⌑'),el('p',{},'Keep your own domains a click away. Add a label and a default scan depth, then revisit whenever you need.')));
+    return;
+  }
+  $('saved-targets-content').replaceChildren(el('div',{class:'saved-targets-grid'},...state.targets.map(target=>{
+    const analyze=el('button',{class:'secondary-button','data-run-target':target.id,onClick:()=>{
+      if(state.busy)return;
+      $('target').value=target.target;document.querySelector(`input[name=profile][value=${target.profile==='deep'?'deep':'quick'}]`).checked=true;$('fresh').checked=false;startScan();
+    }},'Analyze');analyze.disabled=state.busy;
+    const latest=target.last_scan_id?el('button',{class:'text-button',onClick:()=>openReport(target.last_scan_id,true)},'Latest report'):el('span',{class:'muted'},'No reports yet');
+    const remove=el('button',{class:'icon-button','aria-label':'Remove saved domain '+target.target,onClick:async event=>{
+      const button=event.currentTarget;button.disabled=true;
+      try{await api('targets/'+target.id,{method:'DELETE'});await refreshTargets();toast('Domain removed. Its reports are still in history.');}catch(error){toast(error.message);button.disabled=false;}
+    }},'×');
+    return el('article',{class:'saved-target-card'},el('div',{class:'saved-target-card-heading'},el('span',{class:'domain-glyph','aria-hidden':'true'},'◎'),el('div',{},el('h3',{},target.label||target.target),target.label?el('code',{},target.target):null),el('button',{class:'icon-button','aria-label':'Edit saved domain '+target.target,onClick:()=>openTargetDialog(target)},'✎'),remove),el('p',{class:'saved-target-meta'},(target.profile==='deep'?'Deep dive':'Quick look')+' · '+(target.last_scan_timestamp?'Last analyzed '+date(target.last_scan_timestamp):'Ready when you are')),el('div',{class:'saved-target-actions'},latest,analyze));
+  })));
+}
+async function refreshTargets() {
+  try{const data=await api('targets');state.targets=list(data.targets);renderTargets();}
+  catch(error){$('saved-targets-content').replaceChildren(message(error.message,'error'));}
+}
+function openTargetDialog(existing=null) {
+  $('saved-target-input').value=existing?.target||$('target').value;
+  $('saved-target-input').readOnly=!!existing;
+  $('saved-target-label').value=existing?.label||'';
+  $('saved-target-profile').value=existing?.profile||document.querySelector('input[name=profile]:checked').value;
+  $('target-dialog-title').textContent=existing?'Edit saved domain':'Save a domain';
+  $('target-form-error').hidden=true;$('target-dialog').showModal();
+}
+async function saveTarget(event) {
+  event.preventDefault();$('target-save-submit').disabled=true;$('target-form-error').hidden=true;
+  try{
+    await api('targets',{method:'POST',body:JSON.stringify({target:$('saved-target-input').value,label:$('saved-target-label').value,profile:$('saved-target-profile').value})});
+    $('target-dialog').close();await refreshTargets();toast('Domain saved to your workspace.');
+  }catch(error){$('target-form-error').textContent=error.message;$('target-form-error').hidden=false;}
+  finally{$('target-save-submit').disabled=false;}
 }
 async function startScan(event) {
   event?.preventDefault(); if (state.busy) return;
@@ -113,6 +153,7 @@ function startPolling(id,target) {
       if (scan.status!=='pending') {
         state.pending=null;setBusy(false);$('scan-progress').hidden=true;
         await refreshHistory(true);
+        await refreshTargets();
         toast(scan.status==='completed'?'Your report is ready.':scan.status==='partial'?'Report ready. Some checks were unavailable.':'This scan could not finish. See the report for details.');
         return;
       }
@@ -236,8 +277,12 @@ function syncTabs() {
 }
 async function openCompare() {
   const current=state.selected;if(!current||current.id==='demo')return;
-  const candidates=state.scans.filter(s=>s.target===current.target&&s.id<current.id&&s.status!=='pending'&&s.status!=='failed');
-  $('compare-description').textContent=candidates.length ? 'Compare DNS, headers and historical hostnames. Results are drawn from this history page; unavailable checks can appear as differences.' : 'No earlier finished report for this domain is on the current history page. Run a fresh scan, or select a newer report on the same page.';
+  let candidates;
+  try{
+    const data=await api('scans?target='+encodeURIComponent(current.target));
+    candidates=list(data.scans).filter(s=>s.id<current.id&&s.status!=='pending'&&s.status!=='failed');
+  }catch(error){toast(error.message);return;}
+  $('compare-description').textContent=candidates.length ? 'Compare DNS, headers and historical hostnames across the latest 50 reports for this domain. Unavailable checks can appear as differences.' : 'No earlier finished report is among the latest 50 investigations for this domain. Run a fresh scan or select a more recent report.';
   $('compare-select').replaceChildren(...candidates.map(s=>el('option',{value:s.id},date(s.timestamp)+' · '+(s.profile==='deep'?'Deep':'Quick')+' · #'+s.id)));
   $('run-compare').disabled=!candidates.length;$('compare-result').replaceChildren();$('compare-dialog').showModal();
 }
@@ -268,6 +313,9 @@ function setTheme(theme) {
 try {setTheme(localStorage.getItem('lualens-theme')||'dark');} catch {setTheme('dark');}
 $('theme-button').addEventListener('click',()=>{const theme=document.documentElement.dataset.theme==='dark'?'light':'dark';setTheme(theme);try{localStorage.setItem('lualens-theme',theme);}catch{}});
 $('scan-form').addEventListener('submit',startScan);
+$('save-target-button').addEventListener('click',()=>openTargetDialog());
+$('add-target-button').addEventListener('click',()=>openTargetDialog());
+$('target-form').addEventListener('submit',saveTarget);
 for(const id of ['guide-button','help-button','privacy-button']) $(id).addEventListener('click',()=>$('guide-dialog').showModal());
 $('demo-button').addEventListener('click',showDemo);
 for(const button of document.querySelectorAll('[data-close]')) button.addEventListener('click',()=>$(button.dataset.close).close());
@@ -294,7 +342,7 @@ document.addEventListener('keydown',event=>{if(event.key==='/' && !event.ctrlKey
 async function init() {
   $('scan-submit').disabled=true;$('history-content').replaceChildren(el('div',{class:'loading-state'},'Opening your private workspace…'));
   try {
-    const bootstrap=await api('bootstrap');state.csrf=bootstrap.csrf;setBusy(false);await refreshHistory();
+    const bootstrap=await api('bootstrap');state.csrf=bootstrap.csrf;setBusy(false);await Promise.all([refreshHistory(),refreshTargets()]);
     const id=location.hash.match(/^#report=(\d+)$/)?.[1];if(id)await openReport(id);
   }catch(error){$('form-error').textContent=error.message+' Reload this page to retry.';$('form-error').hidden=false;$('history-content').replaceChildren(message('Your workspace could not be opened.','error'));}
 }

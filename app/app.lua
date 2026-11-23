@@ -21,13 +21,19 @@ if not owner then return error_response(401,'Your workspace session has expired.
 if method~='GET' and not session.check(csrf) then return error_response(403,'Request verification failed. Reload this page and retry.') end
 if bootstrap and method=='GET' then
     if ngx.var.http_sec_fetch_site=='cross-site' then return error_response(403,'Open the workspace directly to begin.') end
-    return reply(200,{csrf=csrf,limits={per_minute=3,retention_days=30,cache_seconds=600},version='2.0'})
+    return reply(200,{csrf=csrf,limits={per_minute=3,retention_days=30,cache_seconds=600,saved_targets=50},version='2.1'})
 end
 if path=='/api/scans' and method=='GET' then
     local page=tonumber(ngx.var.arg_page or '1')
     if not page or page%1~=0 or page<1 or page>100 then return error_response(400,'Invalid history page.') end
-    local rows,err=storage.history(owner,page)
-    local total,count_err=storage.count(owner)
+    local target=ngx.var.arg_target
+    if target then
+        local normalized=require('validator').sanitize_and_validate(target)
+        if not normalized then return error_response(422,'Invalid domain filter.') end
+        target=normalized
+    end
+    local rows,err=storage.history(owner,page,target)
+    local total,count_err=storage.count(owner,target)
     if not rows or not total then return error_response(503,err or count_err) end
     return reply(200,{scans=#rows>0 and rows or json.empty_array or {},total=total,page=page,page_size=50})
 end
@@ -40,6 +46,39 @@ local function body()
     local value=json.decode(raw)
     if type(value)~='table' then return nil,'Invalid JSON body.' end
     return value
+end
+if path=='/api/targets' then
+    if method=='GET' then
+        local rows,err=storage.targets(owner)
+        if not rows then return error_response(503,err) end
+        return reply(200,{targets=#rows>0 and rows or json.empty_array or {},limit=50})
+    end
+    if method=='POST' then
+        local data,err=body()
+        if not data then return error_response(400,err) end
+        local target
+        target,err=require('validator').sanitize_and_validate(data.target)
+        if not target then return error_response(422,err) end
+        local label=data.label or ''
+        if type(label)~='string' or #label>320 or label:find('[%c]') or not ngx.re.match(label,'^.{0,80}$','ju') then
+            return error_response(422,'Use a label of up to 80 characters, without control characters.') end
+        label=label:match('^%s*(.-)%s*$')
+        local profile=data.profile or 'quick'
+        if profile~='quick' and profile~='deep' then return error_response(422,'Choose a quick or deep scan.') end
+        local row,message=storage.save_target(owner,target,label,profile)
+        if not row then return error_response(message=='Save up to 50 domains per workspace.' and 409 or 503,message) end
+        return reply(200,row)
+    end
+    ngx.header.Allow='GET, POST'
+    return error_response(405,'Method not allowed.')
+end
+local target_id=path:match('^/api/targets/(%d+)$')
+if target_id and #target_id<12 then
+    if method~='DELETE' then ngx.header.Allow='DELETE';return error_response(405,'Method not allowed.') end
+    local changed,err=storage.delete_target(owner,tonumber(target_id))
+    if not changed then return error_response(503,err) end
+    if changed==0 then return error_response(404,'Saved domain not found in this workspace.') end
+    return reply(200,{deleted=true})
 end
 if path=='/api/scans' and method=='POST' then
     local data,err=body()

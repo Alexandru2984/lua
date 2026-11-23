@@ -106,3 +106,30 @@ test('Mobile layouts, accessible tabs, dialogs, keyboard and demo need no scan a
   await page.locator('#help-button').click();assert.equal(await page.locator('#guide-dialog').isVisible(),true);await page.keyboard.press('Escape');assert.equal(await page.locator('#guide-dialog').isVisible(),false);
   await page.locator('#theme-button').click();await page.screenshot({path:'test-results/mobile-light.png',fullPage:true});assert.deepEqual(errors,[]);await ctx.close();
 });
+test('Saved domains persist, stay private, and start a scan only on request',async()=>{
+  const {ctx,page}=await context('8.8.4.61',{width:390,height:844});
+  const {csrf}=await (await ctx.request.get(base+'/api/bootstrap')).json();
+  await page.locator('#target').fill('example.com');await page.locator('#save-target-button').click();
+  const label='Producție ✓ <img src=x onerror="window.__xss=1">';
+  await page.locator('#saved-target-label').fill(label);await page.locator('#saved-target-profile').selectOption('deep');await page.locator('#target-save-submit').click();
+  await page.waitForFunction(()=>document.getElementById('saved-target-count').textContent==='1');
+  assert.equal(await page.locator('#stat-total').textContent(),'0');assert.equal(await page.locator('.saved-target-card img').count(),0);assert.equal(await page.evaluate(()=>window.__xss),undefined);
+  await page.reload();await page.waitForFunction(()=>document.getElementById('saved-target-count').textContent==='1');assert.equal(await page.locator('.saved-target-card h3').textContent(),label);
+  const saved=(await (await ctx.request.get(base+'/api/targets')).json()).targets[0];
+  for(const body of [{target:'127.0.0.1'},{target:'example.com',label:'x'.repeat(81)},{target:'example.com',label:'bad\nlabel'}]) {
+    assert.equal((await ctx.request.post(base+'/api/targets',{headers:{'X-CSRF-Token':csrf},data:body})).status(),422);
+  }
+  assert.equal((await ctx.request.post(base+'/api/targets',{data:{target:'example.com'}})).status(),403);
+  const other=await context('8.8.4.62');const token=(await (await other.ctx.request.get(base+'/api/bootstrap')).json()).csrf;
+  assert.equal((await (await other.ctx.request.get(base+'/api/targets')).json()).targets.length,0);
+  assert.equal((await other.ctx.request.delete(base+'/api/targets/'+saved.id,{headers:{'X-CSRF-Token':token}})).status(),404);
+  await page.getByRole('button',{name:'Edit saved domain example.com',exact:true}).click();await page.locator('#saved-target-label').fill('My production domain');await page.locator('#target-save-submit').click();
+  await page.waitForFunction(()=>document.querySelector('.saved-target-card h3').textContent==='My production domain');
+  await page.getByRole('button',{name:'Analyze',exact:true}).click();await finished(page);
+  assert.equal(await page.locator('#stat-total').textContent(),'1');assert.match(await page.locator('#report-meta').textContent(),/Deep dive/);
+  await page.getByRole('button',{name:'Latest report',exact:true}).waitFor();
+  for(const width of [360,390,768,1440]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}
+  await page.setViewportSize({width:390,height:844});await page.screenshot({path:'test-results/saved-domains-mobile.png',fullPage:true});
+  await page.getByRole('button',{name:'Remove saved domain example.com',exact:true}).click();await page.waitForFunction(()=>document.getElementById('saved-target-count').textContent==='0');assert.equal(await page.locator('#stat-total').textContent(),'1');
+  await ctx.close();await other.ctx.close();
+});

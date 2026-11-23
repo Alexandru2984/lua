@@ -53,6 +53,13 @@ function M.init()
     end
     for _, sql in ipairs({"UPDATE scans SET created_epoch=CAST(strftime('%s', timestamp) AS INTEGER) WHERE created_epoch IS NULL",
         'CREATE INDEX IF NOT EXISTS scans_owner_id ON scans(owner, id DESC)',
+        'CREATE INDEX IF NOT EXISTS scans_owner_target_id ON scans(owner, target, id DESC)',
+        [[CREATE TABLE IF NOT EXISTS saved_targets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT NOT NULL,
+            target TEXT NOT NULL, label TEXT NOT NULL DEFAULT '',
+            profile TEXT NOT NULL DEFAULT 'quick', created_epoch INTEGER NOT NULL,
+            updated_epoch INTEGER NOT NULL, UNIQUE(owner,target)
+        )]],
         'CREATE INDEX IF NOT EXISTS scans_created ON scans(created_epoch)', 'PRAGMA journal_mode=WAL'}) do
         if db:exec(sql) ~= sqlite.OK then db:close(); return nil, 'Database setup failed.' end
     end
@@ -81,16 +88,49 @@ function M.get(owner, id)
     end
     return row
 end
-function M.history(owner, page)
-    return query('SELECT id,target,timestamp,status,profile,stage,favorite,score,duration_ms FROM scans WHERE owner=? ORDER BY id DESC LIMIT 50 OFFSET ?', {owner,(page-1)*50})
+function M.history(owner, page, target)
+    local args={owner}
+    local filter=''
+    if target then filter=' AND target=?';args[#args+1]=target end
+    args[#args+1]=(page-1)*50
+    return query('SELECT id,target,timestamp,status,profile,stage,favorite,score,duration_ms FROM scans WHERE owner=?'..filter..' ORDER BY id DESC LIMIT 50 OFFSET ?', args)
 end
-function M.count(owner)
-    local rows, err = query('SELECT COUNT(*) AS total FROM scans WHERE owner=?', {owner})
+function M.count(owner, target)
+    local args={owner}
+    local filter=''
+    if target then filter=' AND target=?';args[#args+1]=target end
+    local rows, err = query('SELECT COUNT(*) AS total FROM scans WHERE owner=?'..filter, args)
     return rows and rows[1].total, err
 end
 function M.healthy()
     local rows=query('SELECT owner,report FROM scans LIMIT 1')
-    return rows ~= nil
+    return rows ~= nil and query('SELECT id FROM saved_targets LIMIT 0') ~= nil
+end
+function M.targets(owner)
+    return query([[SELECT t.id,t.target,t.label,t.profile,t.created_epoch,t.updated_epoch,
+        s.id AS last_scan_id,s.timestamp AS last_scan_timestamp,
+        s.status AS last_scan_status,s.score AS last_score
+        FROM saved_targets t LEFT JOIN scans s ON s.id=(
+            SELECT id FROM scans WHERE owner=t.owner AND target=t.target ORDER BY id DESC LIMIT 1)
+        WHERE t.owner=? ORDER BY t.updated_epoch DESC,t.id DESC LIMIT 50]], {owner})
+end
+function M.save_target(owner,target,label,profile)
+    -- The capacity check and upsert are one statement, so concurrent requests
+    -- cannot race past the per-workspace bound. Existing entries remain editable.
+    local changed,err=query([[INSERT INTO saved_targets(owner,target,label,profile,created_epoch,updated_epoch)
+        SELECT ?,?,?,?,?,? WHERE
+        (SELECT COUNT(*) FROM saved_targets WHERE owner=?)<50 OR
+        EXISTS(SELECT 1 FROM saved_targets WHERE owner=? AND target=?)
+        ON CONFLICT(owner,target) DO UPDATE SET label=excluded.label,
+            profile=excluded.profile,updated_epoch=excluded.updated_epoch]],
+        {owner,target,label,profile,ngx.time(),ngx.time(),owner,owner,target}, 'change')
+    if not changed then return nil,err end
+    if changed==0 then return nil,'Save up to 50 domains per workspace.' end
+    local rows,message=query('SELECT id,target,label,profile FROM saved_targets WHERE owner=? AND target=?',{owner,target})
+    return rows and rows[1],message
+end
+function M.delete_target(owner,id)
+    return query('DELETE FROM saved_targets WHERE owner=? AND id=?',{owner,id},'change')
 end
 function M.recent(owner, target, profile)
     local rows, err = query("SELECT id,status FROM scans WHERE owner=? AND target=? AND profile=? AND (status='pending' OR (status IN ('completed','partial') AND created_epoch>?)) ORDER BY id DESC LIMIT 1", {owner,target,profile,ngx.time()-600})
@@ -105,6 +145,10 @@ end
 function M.maintain()
     local changed, err = query("UPDATE scans SET status='failed',stage='Interrupted or timed out' WHERE status='pending' AND created_epoch<?", {ngx.time()-120}, 'change')
     if not changed then return nil, err end
+    changed,err=query([[DELETE FROM saved_targets WHERE updated_epoch<? OR id IN
+        (SELECT id FROM saved_targets ORDER BY updated_epoch DESC,id DESC LIMIT -1 OFFSET 5000)]],
+        {ngx.time()-2592000},'change')
+    if not changed then return nil,err end
     -- Original shared records have no owner. Preserve them as an offline legacy
     -- archive rather than publishing them to a newly created browser workspace.
     return query("DELETE FROM scans WHERE owner IS NOT NULL AND status!='pending' AND (created_epoch<? OR id IN (SELECT id FROM scans WHERE owner IS NOT NULL AND status!='pending' ORDER BY id DESC LIMIT -1 OFFSET 5000))", {ngx.time()-2592000}, 'change')
