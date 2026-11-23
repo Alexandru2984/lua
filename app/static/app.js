@@ -1,7 +1,8 @@
-import { list, hasScore, reportCsv, compareReports } from './report.js?v=2';
-import { demo } from './demo.js?v=2';
+import { list, hasScore, reportCsv, compareReports } from './report.js?v=2.1';
+import { reportHtml, reportMarkdown, reportSummary } from './report-export.js?v=2.1';
+import { demo } from './demo.js?v=2.1';
 const $ = id => document.getElementById(id);
-const state = {csrf:null, scans:[], targets:[], total:0, page:1, selected:null, tab:'security', favorites:false, pending:null, busy:false, deleteId:null, historySeq:0, reportSeq:0};
+const state = {csrf:null, scans:[], targets:[], targetsEnabled:false, total:0, page:1, selected:null, tab:'security', favorites:false, pending:null, busy:false, deleteId:null, historySeq:0, reportSeq:0};
 function el(tag, attrs = {}, ...children) {
   const n = document.createElement(tag);
   for (const [key,value] of Object.entries(attrs)) {
@@ -95,7 +96,7 @@ function renderTargets() {
   $('saved-targets-content').replaceChildren(el('div',{class:'saved-targets-grid'},...state.targets.map(target=>{
     const analyze=el('button',{class:'secondary-button','data-run-target':target.id,onClick:()=>{
       if(state.busy)return;
-      $('target').value=target.target;document.querySelector(`input[name=profile][value=${target.profile==='deep'?'deep':'quick'}]`).checked=true;$('fresh').checked=false;startScan();
+      $('target').value=target.target;document.querySelector(`input[name=profile][value=${target.profile==='deep'?'deep':'quick'}]`).checked=true;startScan();
     }},'Analyze');analyze.disabled=state.busy;
     const latest=target.last_scan_id?el('button',{class:'text-button',onClick:()=>openReport(target.last_scan_id,true)},'Latest report'):el('span',{class:'muted'},'No reports yet');
     const remove=el('button',{class:'icon-button','aria-label':'Remove saved domain '+target.target,onClick:async event=>{
@@ -106,6 +107,7 @@ function renderTargets() {
   })));
 }
 async function refreshTargets() {
+  if(!state.targetsEnabled)return;
   try{const data=await api('targets');state.targets=list(data.targets);renderTargets();}
   catch(error){$('saved-targets-content').replaceChildren(message(error.message,'error'));}
 }
@@ -184,7 +186,7 @@ function renderReport() {
   $('report-title').textContent=scan.target;
   $('report-meta').textContent=(sample?'Illustrative report':date(scan.timestamp))+' · '+(scan.profile==='deep'?'Deep dive':'Quick look')+(scan.duration_ms!=null?' · '+(scan.duration_ms/1000).toFixed(1)+'s':'');
   $('rescan-button').disabled=sample || scan.status==='pending'; $('compare-button').disabled=sample || !scan.report || scan.status==='pending';
-  $('export-json').disabled=!scan.report; $('export-csv').disabled=!scan.report;
+  $('export-button').disabled=!scan.report;
   if(scan.status==='pending') {
     $('report-summary').replaceChildren(el('div',{class:'report-warning'},message(scan.stage || 'Analysis is running.')));
     $('report-content').replaceChildren(el('p',{class:'muted'},'Your findings will appear here as soon as the analysis finishes.'));
@@ -272,10 +274,12 @@ function showDemo() {
 }
 function download(kind) {
   const scan=state.selected;if(!scan?.report) return;
-  const text=kind==='json'?JSON.stringify(scan,null,2):reportCsv(scan);
-  const url=URL.createObjectURL(new Blob([text],{type:kind==='json'?'application/json':'text/csv;charset=utf-8'}));
+  const formats={json:{text:()=>JSON.stringify(scan,null,2),type:'application/json'},csv:{text:()=>reportCsv(scan),type:'text/csv;charset=utf-8'},html:{text:()=>reportHtml(scan),type:'text/html;charset=utf-8'},md:{text:()=>reportMarkdown(scan),type:'text/markdown;charset=utf-8'}};
+  const format=formats[kind];if(!format)return;
+  const url=URL.createObjectURL(new Blob([format.text()],{type:format.type}));
   const a=el('a',{href:url,download:`lualens-${scan.target}-${scan.id}${scan.id==='demo'?'-sample':''}.${kind}`});
   document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  $('export-dialog').close();
 }
 function syncTabs() {
   for(const tab of document.querySelectorAll('[data-tab]')) {const active=tab.dataset.tab===state.tab;tab.setAttribute('aria-selected',active);tab.tabIndex=active?0:-1;}
@@ -318,7 +322,10 @@ function setTheme(theme) {
 try {setTheme(localStorage.getItem('lualens-theme')||'dark');} catch {setTheme('dark');}
 $('theme-button').addEventListener('click',()=>{const theme=document.documentElement.dataset.theme==='dark'?'light':'dark';setTheme(theme);try{localStorage.setItem('lualens-theme',theme);}catch{}});
 $('scan-form').addEventListener('submit',startScan);
-$('save-target-button').addEventListener('click',()=>openTargetDialog());
+$('save-target-button').addEventListener('click',()=>{
+  const target=$('target').value.trim().toLowerCase().replace(/^https?:\/\//,'').split(/[/?]/)[0].replace(/\.$/,'');
+  openTargetDialog(state.targets.find(saved=>saved.target===target));
+});
 $('add-target-button').addEventListener('click',()=>openTargetDialog());
 $('target-form').addEventListener('submit',saveTarget);
 for(const id of ['guide-button','help-button','privacy-button']) $(id).addEventListener('click',()=>$('guide-dialog').showModal());
@@ -332,7 +339,9 @@ $('next-page').addEventListener('click',()=>{if(state.page*50<state.total){state
 $('close-report').addEventListener('click',()=>{state.reportSeq++;state.selected=null;$('report-section').hidden=true;history.replaceState(null,'',location.pathname);});
 $('rescan-button').addEventListener('click',()=>{if(!state.selected)return;$('target').value=state.selected.target;document.querySelector(`input[name=profile][value=${state.selected.profile==='deep'?'deep':'quick'}]`).checked=true;$('fresh').checked=true;startScan();});
 $('compare-button').addEventListener('click',openCompare);$('run-compare').addEventListener('click',runCompare);
-$('export-json').addEventListener('click',()=>download('json'));$('export-csv').addEventListener('click',()=>download('csv'));
+$('export-button').addEventListener('click',()=>{if(!state.selected?.report)return;$('export-report-target').textContent=state.selected.target+(state.selected.id==='demo'?' · Example report':'');$('export-error').hidden=true;$('export-dialog').showModal();});
+for(const button of document.querySelectorAll('[data-export]'))button.addEventListener('click',()=>download(button.dataset.export));
+$('copy-summary').addEventListener('click',async()=>{if(!state.selected?.report)return;try{await navigator.clipboard.writeText(reportSummary(state.selected));$('export-dialog').close();toast('Report summary copied.');}catch{$('export-error').textContent='Clipboard unavailable. Download a Markdown report instead.';$('export-error').hidden=false;}});
 $('confirm-delete').addEventListener('click',confirmDelete);
 const tabs=[...document.querySelectorAll('[data-tab]')];
 for(const tab of tabs) {
@@ -346,8 +355,11 @@ for(const tab of tabs) {
 document.addEventListener('keydown',event=>{if(event.key==='/' && !event.ctrlKey && !event.metaKey && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName) && !document.querySelector('dialog[open]')){event.preventDefault();$('target').focus();}});
 async function init() {
   $('scan-submit').disabled=true;$('history-content').replaceChildren(el('div',{class:'loading-state'},'Opening your private workspace…'));
+  $('add-target-button').disabled=true;$('save-target-button').disabled=true;
   try {
-    const bootstrap=await api('bootstrap');state.csrf=bootstrap.csrf;setBusy(false);await Promise.all([refreshHistory(),refreshTargets()]);
+    const bootstrap=await api('bootstrap');state.csrf=bootstrap.csrf;state.targetsEnabled=bootstrap.capabilities?.saved_targets===true;setBusy(false);
+    $('saved-domains').hidden=!state.targetsEnabled;$('save-target-button').hidden=!state.targetsEnabled;document.querySelector('a[href="#saved-domains"]').hidden=!state.targetsEnabled;
+    $('add-target-button').disabled=!state.targetsEnabled;$('save-target-button').disabled=!state.targetsEnabled;await Promise.all([refreshHistory(),refreshTargets()]);
     const id=location.hash.match(/^#report=(\d+)$/)?.[1];if(id)await openReport(id);
   }catch(error){$('form-error').textContent=error.message+' Reload this page to retry.';$('form-error').hidden=false;$('history-content').replaceChildren(message('Your workspace could not be opened.','error'));}
 }

@@ -98,3 +98,28 @@ The upstream repository is `https://github.com/Alexandru2984/lua`, configured as
 now live under `app/`. Both histories are preserved in a merge commit, and the
 workflow runs on pushes and pull requests. Production deployment is deliberately
 separate from CI and requires the existing VPS operating access.
+
+## Release 2.1
+
+The additive `saved_targets` table uses workspace ownership, a unique
+`(owner,target)` constraint and a single-statement capacity-checked upsert.
+Each workspace can save 50 domains; global storage is bounded at 5,000 entries
+with 30-day expiry measured from the last edit. Saving does not resolve or scan
+the domain. Latest-report metadata is joined only within the same workspace.
+The existing SQLite backup automatically includes this table.
+
+`GET /api/targets`, `POST /api/targets` and `DELETE /api/targets/:id` provide the
+saved-domain API. Mutations use the existing cookie/CSRF/origin requirements.
+`GET /api/scans?target=example.com` filters all history before pagination, so a
+comparison is not limited to the current mixed-domain history page.
+
+The bootstrap advertises capabilities. The frontend hides saved-domain controls
+when an older backend does not advertise them, allowing a graceful reload with
+mixed old/new requests. Old clients continue to use the unchanged scan API.
+
+DNS/email observations reuse the existing queries and keep explicit query
+outcomes. See [observation scope](DNS-OBSERVATIONS.md). They do not change the
+header score. HTML/Markdown exports and clipboard summaries are generated in
+the browser; HTML exports escape all report values, contain no scripts or remote
+assets, and include a restrictive standalone CSP. Browser Print can save the
+whole HTML report as PDF. Downloaded copies are outside server retention.

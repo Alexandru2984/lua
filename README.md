@@ -8,12 +8,18 @@ HTML and CSS. There is no frontend build or production Node server.
 
 - Quick/deep scans with live job status and explicit partial results.
 - DNS A, AAAA, MX, NS, TXT, CAA and DMARC observations.
+- Contextual direct SPF, DMARC, CAA and MX observations, separating unavailable
+  lookups from missing direct records and distinguishing modern DMARC test mode.
 - Verified HTTPS, seven explained header checks and a configuration score.
 - Availability checks for robots.txt, sitemap.xml and security.txt.
 - Deep scans: historical certificate hostnames from crt.sh and registration events
   through HTTPS RDAP, with validated redirects.
 - Private browser workspaces, favorites, searchable/paginated history, status
-  filters, DNS filtering, copy controls, report comparison and JSON/CSV export.
+  filters, DNS filtering and report comparisons across domain-specific history.
+- Up to 50 saved domains per workspace, with labels, preferred scan depth,
+  latest-report shortcuts and manual scan controls.
+- JSON, spreadsheet-safe CSV, Markdown and complete offline HTML exports,
+  printable HTML/PDF layout, and copyable report summaries.
 - Dark/light themes, mobile layouts, accessible tabs/dialogs, keyboard shortcuts
   and a clearly labeled example report that consumes no scan quota.
 
@@ -46,7 +52,7 @@ bash scripts/check.sh
 ```
 
 The check script runs Lua/JS syntax checks, security/storage regressions, export
-and comparison tests, and five browser integration scenarios against a real
+and comparison tests, and eight browser integration scenarios against a real
 isolated Nginx with deterministic provider responses. It never needs production
 credentials or production data. CI uses a container matching the production
 Ubuntu distribution, a pinned checkout action and read-only repository access.
@@ -67,7 +73,9 @@ outer Nginx Basic auth and Cloudflare origin restriction remain required. A
 signed HttpOnly/Secure/SameSite cookie identifies a workspace for 30 days;
 clearing or losing it loses access to those reports. New reports are retained up
 to 30 days, with a global ceiling of 5,000 finished reports. Favorites do not
-extend retention. Encrypted storage and user accounts are not provided.
+extend retention. Saved domains are capped at 50 per workspace and 5,000 globally,
+and expire 30 days after their last edit. Downloaded reports are local copies
+outside server retention. Encrypted storage and user accounts are not provided.
 
 The dashboard remains `noindex` and private. Its semantic structure, description,
 viewport and favicon are in place; it is intentionally not in a sitemap. A public

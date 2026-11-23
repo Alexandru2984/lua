@@ -60,3 +60,19 @@ GitHub CI is versioned and the same checks run locally. The original upstream
 `Alexandru2984/lua` is configured as `origin`, with both histories retained.
 Public SEO acquisition and the roadmap items above remain
 future releases, since authentication and noindex are intentionally retained.
+
+## Release 2.1
+
+- Fixed the hosted CI container's Git ownership mismatch; the complete 2.0 suite
+  passed on GitHub after scoping trust to the checkout for the whitespace check.
+- Added private saved domains with labels, default depth, latest-report access,
+  manual scans, deduplication, ownership checks and bounded storage.
+- Added domain-filtered history for comparisons across mixed-domain pages.
+- Added contextual direct SPF, DMARC, CAA and MX observations. Lookup failures
+  remain unavailable, inherited policy is not guessed, and these observations do
+  not alter the HTTP header score.
+- Added offline complete HTML reports, browser printing/PDF, Markdown exports,
+  and clipboard summaries. CSV now preserves MX priorities.
+- Local release checks: 90 Lua tests, 11 JavaScript tests and eight browser
+  scenarios, including offline HTML/PDF, malicious content and old-bootstrap
+  compatibility. Production and upstream verification follows release checks.

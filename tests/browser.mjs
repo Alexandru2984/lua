@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 let browser, server, base;
 let serverOutput='';
 before(async()=>{
@@ -66,8 +68,17 @@ test('Real UI supports scans, favorites, comparisons, safe external text, downlo
   await page.locator('#compare-button').click();await page.locator('#run-compare').click();await page.waitForFunction(()=>document.getElementById('compare-result').textContent.includes('x-observation'));
   await page.locator('[data-close=compare-dialog]').click();
   await page.locator('#tab-headers').click();assert.ok((await page.locator('#report-content').textContent()).includes('<img src=x onerror='));assert.equal(await page.evaluate(()=>window.__xss),undefined);assert.equal(await page.locator('#report-content img').count(),0);
-  const event=page.waitForEvent('download');await page.locator('#export-json').click();const download=await event;const json=JSON.parse(await readFile(await download.path(),'utf8'));assert.equal(json.target,'example.com');
-  const csvEvent=page.waitForEvent('download');await page.locator('#export-csv').click();const csvDownload=await csvEvent;const csv=await readFile(await csvDownload.path(),'utf8');assert.ok(csv.includes("'=HYPERLINK"));
+  await page.locator('#export-button').click();const event=page.waitForEvent('download');await page.locator('#export-json').click();const download=await event;const json=JSON.parse(await readFile(await download.path(),'utf8'));assert.equal(json.target,'example.com');
+  await page.locator('#export-button').click();const csvEvent=page.waitForEvent('download');await page.locator('#export-csv').click();const csvDownload=await csvEvent;const csv=await readFile(await csvDownload.path(),'utf8');assert.ok(csv.includes("'=HYPERLINK"));
+  await page.locator('#export-button').click();const htmlEvent=page.waitForEvent('download');await page.locator('#export-html').click();const htmlDownload=await htmlEvent;const html=await readFile(await htmlDownload.path(),'utf8');
+  const file=resolve('test-results/offline-report.html');await writeFile(file,html);
+  const offline=await browser.newContext({offline:true});const viewer=await offline.newPage();const outbound=[];
+  viewer.on('request',request=>{if(/^https?:/.test(request.url()))outbound.push(request.url());});await viewer.goto(pathToFileURL(file).href);
+  assert.equal(await viewer.locator('h1').textContent(),'example.com');assert.equal(await viewer.locator('script,img,iframe').count(),0);assert.equal(await viewer.evaluate(()=>window.__xss),undefined);assert.deepEqual(outbound,[]);
+  assert.ok((await viewer.locator('body').textContent()).includes('<img src=x onerror='));
+  const pdf=await viewer.pdf({path:'test-results/report.pdf',format:'A4',printBackground:true});assert.equal(pdf.subarray(0,4).toString(),'%PDF');await viewer.screenshot({path:'test-results/offline-report.png',fullPage:true});await offline.close();
+  await page.locator('#export-button').click();const markdownEvent=page.waitForEvent('download');await page.locator('#export-markdown').click();const markdownDownload=await markdownEvent;const markdown=await readFile(await markdownDownload.path(),'utf8');assert.match(markdown,/^# LuaLens report/);
+  await ctx.grantPermissions(['clipboard-read','clipboard-write'],{origin:base});await page.bringToFront();await page.locator('#export-button').click();await page.locator('#copy-summary').click();assert.match(await page.evaluate(()=>navigator.clipboard.readText()),/LuaLens: example.com/);
   await page.locator('#tab-dns').click();await page.getByRole('searchbox',{name:'Filter DNS records'}).fill('MX');assert.equal(await page.locator('#report-content .data-table tbody tr').count(),1);
   await page.locator('#theme-button').click();const theme=await page.locator('html').getAttribute('data-theme');await page.reload();await page.waitForFunction(()=>!document.getElementById('scan-submit').disabled);assert.equal(await page.locator('html').getAttribute('data-theme'),theme);
   await page.locator('.row-actions button[aria-label^="Delete"]').last().click();await page.locator('#confirm-delete').click();await page.waitForFunction(()=>document.getElementById('stat-total').textContent==='1');
@@ -116,6 +127,7 @@ test('Saved domains persist, stay private, and start a scan only on request',asy
   await page.waitForFunction(()=>document.getElementById('saved-target-count').textContent==='1');
   assert.equal(await page.locator('#stat-total').textContent(),'0');assert.equal(await page.locator('.saved-target-card img').count(),0);assert.equal(await page.evaluate(()=>window.__xss),undefined);
   await page.reload();await page.waitForFunction(()=>document.getElementById('saved-target-count').textContent==='1');assert.equal(await page.locator('.saved-target-card h3').textContent(),label);
+  await page.locator('#target').fill('example.com');await page.locator('#save-target-button').click();assert.equal(await page.locator('#saved-target-label').inputValue(),label);await page.locator('#target-dialog button[data-close]').first().click();
   const saved=(await (await ctx.request.get(base+'/api/targets')).json()).targets[0];
   for(const body of [{target:'127.0.0.1'},{target:'example.com',label:'x'.repeat(81)},{target:'example.com',label:'bad\nlabel'}]) {
     assert.equal((await ctx.request.post(base+'/api/targets',{headers:{'X-CSRF-Token':csrf},data:body})).status(),422);
@@ -126,7 +138,7 @@ test('Saved domains persist, stay private, and start a scan only on request',asy
   assert.equal((await other.ctx.request.delete(base+'/api/targets/'+saved.id,{headers:{'X-CSRF-Token':token}})).status(),404);
   await page.getByRole('button',{name:'Edit saved domain example.com',exact:true}).click();await page.locator('#saved-target-label').fill('My production domain');await page.locator('#target-save-submit').click();
   await page.waitForFunction(()=>document.querySelector('.saved-target-card h3').textContent==='My production domain');
-  await page.getByRole('button',{name:'Analyze',exact:true}).click();await finished(page);
+  await page.locator('#fresh').check();const creation=page.waitForRequest(r=>r.url()===base+'/api/scans'&&r.method()==='POST');await page.getByRole('button',{name:'Analyze',exact:true}).click();assert.equal((await creation).postDataJSON().fresh,true);await finished(page);
   assert.equal(await page.locator('#stat-total').textContent(),'1');assert.match(await page.locator('#report-meta').textContent(),/Deep dive/);
   await page.getByRole('button',{name:'Latest report',exact:true}).waitFor();
   for(const width of [360,390,768,1440]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}
@@ -142,4 +154,12 @@ test('Failed DNS lookups remain unavailable independently of a successful HTTP s
   assert.equal(await page.locator('#report-summary .status-partial').count(),1);assert.match(await page.locator('#report-summary').textContent(),/100/);
   assert.ok(!(await page.locator('#report-content').textContent()).includes('No SPF record'));
   await page.screenshot({path:'test-results/dns-policy-unavailable-mobile.png',fullPage:true});await ctx.close();
+});
+test('A newer frontend remains usable during an older backend bootstrap response',async()=>{
+  const ctx=await browser.newContext({extraHTTPHeaders:{'X-Real-IP':'8.8.4.81'}});const page=await ctx.newPage();const requests=[];
+  await page.route('**/api/bootstrap',async route=>{const response=await route.fetch();const data=await response.json();delete data.capabilities;data.version='2.0';await route.fulfill({response,json:data});});
+  page.on('request',request=>{if(request.url().includes('/api/targets'))requests.push(request.url());});
+  await page.goto(base);await page.waitForFunction(()=>!document.getElementById('scan-submit').disabled);
+  assert.equal(await page.locator('#saved-domains').isVisible(),false);assert.equal(await page.locator('#save-target-button').isVisible(),false);assert.deepEqual(requests,[]);
+  await page.getByRole('button',{name:'Take a look at an example'}).click();assert.equal(await page.locator('#report-title').textContent(),'example.com');await ctx.close();
 });

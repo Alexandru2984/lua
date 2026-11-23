@@ -109,3 +109,31 @@ database restore does not silently strand browser workspaces.
 - [OWASP SSRF prevention](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html)
 - [Nginx trusted real-IP configuration](https://nginx.org/en/docs/http/ngx_http_realip_module.html)
 - [lua-resty-http streaming and explicit connections](https://github.com/ledgetech/lua-resty-http)
+
+## Release 2.1 verification
+
+The hosted CI ownership issue was reproduced under an account different from
+the checkout owner. Trust is scoped to the current checkout for the single Git
+command; no global ownership protection is disabled. The corrected 2.0 workflow
+[passed on GitHub](https://github.com/Alexandru2984/lua/actions/runs/45136224992).
+
+Additional checks cover saved-domain isolation, duplicate updates, atomic
+capacity enforcement, expiry, and ownership of linked report metadata. Labels
+use bounded UTF-8 validation and render as text. Domain-filtered history retains
+owner predicates and bound parameters. Saving a domain triggers no DNS or web
+request. The table is additive and the existing database backup includes it.
+
+Direct DNS observation states prevent lookup failures from appearing as absent
+policies. Tests cover multiple SPF/DMARC records, permissive SPF, modern DMARC
+testing mode, legacy percentage tags, missing inherited policy, null MX and
+ambiguous policy tags. They are observations, not a complete mail validator.
+
+HTML exports escape all untrusted fields, load no remote assets and execute no
+scripts. Browser tests open the downloaded file offline with injected hostile
+header content and verify no executable elements, no outbound HTTP requests and
+successful PDF output. Markdown fences withstand hostile backticks; CSV retains
+formula protection and now includes MX priority. The frontend also remains
+usable with a 2.0 bootstrap during a graceful backend reload.
+
+Local release checks now total 109: 90 Lua, 11 JavaScript and eight browser
+scenarios. The existing residual limits above remain applicable.
