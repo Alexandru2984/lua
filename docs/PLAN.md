@@ -42,7 +42,7 @@ and the six existing records. No framework migration is necessary.
 After the verified foundation: authenticated accounts and persistent workspaces,
 domain ownership verification, opt-in scheduled checks, meaningful change alerts,
 teams and roles, report sharing with expiring tokens, DNS propagation views,
-certificate expiry monitoring, and localization. These need separate product and
+scheduled certificate expiry monitoring, and localization. These need separate product and
 data-lifecycle decisions; they must not be represented as working features yet.
 
 Public acquisition needs a separate public educational landing page and a
@@ -77,3 +77,25 @@ future releases, since authentication and noindex are intentionally retained.
   scenarios, including offline HTML/PDF, malicious content and old-bootstrap
   compatibility. The release is installed on the VPS; a real scan verified saved
   domains, report links and all four DNS observations. GitHub checks run on push.
+
+
+## Release 2.2
+
+- Capture public leaf-certificate metadata from the existing verified TLS session:
+  validity dates, common names, SHA-256, negotiated protocol and cipher. No extra
+  provider request, runtime subprocess or dependency is needed.
+- Show certificate snapshots, copyable fingerprints and 7/30-day expiry warnings
+  in reports and saved domains. Anchor relative expiry to the bootstrap server
+  clock; export the same metadata in HTML, Markdown, CSV and JSON.
+- Add private per-domain timelines with 50-row cursor pages and accessible report
+  links. Unknown scores leave chart gaps; partial reports remain explicit.
+- Compare known observations only. Separate request-specific headers behind an
+  opt-in control; certificate rotations, resource statuses and registration/DNS
+  changes remain visible. Failed/truncated observations do not imply removals.
+- Treat resource and metadata collection failures as partial reports while
+  retaining independently successful HTTPS verification.
+- Release checks: 101 Lua tests, 19 JavaScript tests, two native TLS scenarios
+  and ten browser scenarios, including mobile layouts, hostile certificate text,
+  unknown observations, clock skew, cursor navigation and workspace isolation.
+- Automatic monitoring, revocation, exhaustive TLS grading, accounts and public
+  acquisition remain follow-up work; manual scan snapshots are available now.

@@ -11,6 +11,10 @@ HTML and CSS. There is no frontend build or production Node server.
 - Contextual direct SPF, DMARC, CAA and MX observations, separating unavailable
   lookups from missing direct records and distinguishing modern DMARC test mode.
 - Verified HTTPS, seven explained header checks and a configuration score.
+- Certificate validity dates, issuer/subject common names, SHA-256 fingerprint
+  and the protocol/cipher negotiated by the verified connection.
+- Private domain timelines with cursor pagination, score gaps for unknown results,
+  and comparisons that separate configuration changes from request-specific noise.
 - Availability checks for robots.txt, sitemap.xml and security.txt.
 - Deep scans: historical certificate hostnames from crt.sh and registration events
   through HTTPS RDAP, with validated redirects.
@@ -25,8 +29,10 @@ HTML and CSS. There is no frontend build or production Node server.
 
 A score is an observation about the initial root response, not a security
 certification. IPv6 records are displayed, but outbound connections currently use
-public IPv4. Certificate expiry/revocation and full TLS protocol grading are not
-implemented. There are no accounts, schedules or notifications yet.
+public IPv4. Certificate expiry is shown from the latest retained snapshot, with
+7/30-day warnings; a manual scan checks the certificate currently served.
+Revocation and full server protocol/cipher grading are not implemented.
+There are no accounts, schedules or notifications yet.
 
 ## Layout
 
@@ -42,8 +48,10 @@ implemented. There are no accounts, schedules or notifications yet.
 
 Production uses Ubuntu 26.04, Nginx with `libnginx-mod-http-lua`, Lua 5.1/LuaJIT,
 `lua-lsqlite3`, `lua-cjson`, and `lua-resty-dns` 0.21-1. Development additionally
-needs Node 20+, Python 3, Busted and Playwright. `lua-resty-http`, WHOIS and OpenSSL
-subprocesses are not used by the new application.
+needs Node 20+, Python 3, Busted, Playwright and the OpenSSL CLI for disposable
+test certificates. The running application uses existing OpenSSL public APIs
+through LuaJIT FFI; it does not execute OpenSSL, WHOIS or other subprocesses.
+See [TLS snapshot scope](docs/TLS-SNAPSHOTS.md).
 
 ```sh
 npm ci --ignore-scripts
@@ -52,8 +60,9 @@ bash scripts/check.sh
 ```
 
 The check script runs Lua/JS syntax checks, security/storage regressions, export
-and comparison tests, and eight browser integration scenarios against a real
-isolated Nginx with deterministic provider responses. It never needs production
+and comparison tests, two native TLS integration cases (1.2 and 1.3), and ten
+browser scenarios against a real isolated Nginx with deterministic provider
+responses. It never needs production
 credentials or production data. CI uses a container matching the production
 Ubuntu distribution, a pinned checkout action and read-only repository access.
 

@@ -18,7 +18,7 @@ jobs:
       - name: Install native runtime and test tools
         run: |
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates nodejs npm python3 nginx libnginx-mod-http-lua lua5.1 lua-busted lua-cjson lua-lsqlite3 lua-filesystem luarocks liblua5.1-0-dev build-essential
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ca-certificates openssl nodejs npm python3 nginx libnginx-mod-http-lua lua5.1 lua-busted lua-cjson lua-lsqlite3 lua-filesystem luarocks liblua5.1-0-dev build-essential
           luarocks --lua-version=5.1 install lua-resty-dns 0.21-1
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

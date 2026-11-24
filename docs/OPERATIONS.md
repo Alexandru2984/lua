@@ -125,3 +125,31 @@ header score. HTML/Markdown exports and clipboard summaries are generated in
 the browser; HTML exports escape all report values, contain no scripts or remote
 assets, and include a restrictive standalone CSP. Browser Print can save the
 whole HTML report as PDF. Downloaded copies are outside server retention.
+
+
+## Release 2.2
+
+Startup adds nullable scan-summary columns: `dns_count`, `http_status`,
+`tls_verified`, `certificate_not_after` and `certificate_sha256`. Existing reports
+are preserved without guessing or backfilling unavailable metadata. Health
+checks include these columns. Take a paired database/key snapshot before reload;
+the source rollback to 2.1 tolerates these additive columns.
+
+`GET /api/domain-history?target=example.com&before=123` returns at most 50 owned
+summary rows and `has_more`. The optional cursor is an exclusive positive scan
+ID, not an offset. The query reads at most 51 rows through the existing
+owner/target index; report blobs and owner identifiers are excluded. A different
+workspace receives an empty collection. Full reports retain the existing
+ownership checks. NULL observations remain unknown, including pre-2.2 reports.
+
+The bootstrap advertises `domain_history`/`tls_details` capabilities and a server
+Unix timestamp. Relative expiry uses that timestamp plus a monotonic browser
+clock; displayed dates use the browser timezone, while exports use UTC. The
+latest retained report supplies saved-domain certificate expiry. Deleting that
+report or receiving an incomplete newer report can remove the expiry indicator;
+this is not a background monitor and must not imply a current certificate check.
+
+Certificate metadata reuses a verified root connection and public OpenSSL
+session/certificate APIs. Missing native support yields explicit unavailable
+metadata and a partial report; it does not downgrade or disable TLS verification.
+Resource timeouts also produce partial reports. See [TLS snapshot scope](TLS-SNAPSHOTS.md).

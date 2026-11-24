@@ -146,3 +146,33 @@ and encoding failures; the distribution module was also checked directly.
 The installed 2.1 release passed a real saved-domain/scan/history/link smoke test
 with verified HTTPS and four DNS observations. Its temporary records were
 removed, SQLite integrity passed, and all six legacy records remain intact.
+
+
+## Release 2.2 verification
+
+Certificate extraction uses public OpenSSL APIs on the opaque session supplied
+by ngx_lua, without reading private Nginx structures, exporting session secrets
+or launching a process. Required symbols resolve before use; an explicit X509
+reference protects certificate lifetime. Name buffers and display output are
+bounded, dates use ASN.1 APIs, and the digest must be exactly 32 bytes. Missing
+metadata is distinguished from failed certificate verification. Both TLS 1.2
+and 1.3 are exercised on disposable local servers with independent fingerprint
+and validity checks after socket closure/garbage collection. The self-signed test
+fixture bypass is confined to the test handler; production verification stays on.
+
+Timeline queries bind workspace, target and cursor parameters, select summaries
+only and cap each page at 50 with a 51-row lookahead. Tests cover cross-workspace
+access, cursor edges, unknown versus zero values and nullable legacy summaries.
+Client chart/report rendering uses text nodes and local SVG. CSV/HTML/Markdown
+exports include escaped certificate fields; hostile common-name text remains
+inert. No new public sharing or authentication surface is introduced.
+
+Comparison tests distinguish successful absence from DNS/provider/resource
+failures, avoid comparisons of truncated CT sets and normalize record ordering.
+Request-specific headers are hidden by default with an explicit display option.
+Resource/metadata errors now propagate to partial status rather than an apparently
+complete result. Browser expiry labels are anchored to the server timestamp,
+including a regression with a browser wall clock ten years ahead.
+
+Release checks total 132: 101 Lua, 19 JavaScript, two native TLS scenarios and
+ten browser scenarios. Existing limitations and host-level follow-ups remain.
