@@ -176,3 +176,16 @@ including a regression with a browser wall clock ten years ahead.
 
 Release checks total 132: 101 Lua, 19 JavaScript, two native TLS scenarios and
 ten browser scenarios. Existing limitations and host-level follow-ups remain.
+
+
+The installed 2.2 release was checked on 2026-11-24: a real `example.com` scan
+completed with verified TLS 1.3 and certificate metadata. Timeline summaries,
+exclusive cursors, saved-domain expiry and second-workspace isolation passed.
+The temporary scan and saved domain were deleted. SQLite integrity passed and
+all six original unowned records remain. The public route still returns 401
+without credentials, with HSTS, strict CSP, DENY framing, nosniff and noindex.
+
+A private database/key snapshot preceded deployment. The backup service then
+created a fresh snapshot containing the new columns; extraction into a temporary
+directory passed integrity checking, all paired checksums matched and the key
+remained mode 0600. This verifies backup contents, not a full production restore.
