@@ -36,10 +36,12 @@ function M.request(host,path,opts)
             observed_at=now,fingerprint_sha256=string.format('%064x',scans[host]),protocol='TLS 1.3',
             cipher='TLS_AES_256_GCM_SHA384',validity_at_scan=days<=7 and 'urgent' or 'valid',days_remaining_at_scan=days}
     end
+    local metadata_error
+    if host=='metadatafailed.example.com' then certificate=nil;metadata_error='Certificate metadata is unavailable.' end
     return {status=path=='/' and 200 or 404,headers={['content-type']='text/html',
         ['strict-transport-security']='max-age=31536000',['x-content-type-options']='nosniff',
         ['content-security-policy']="default-src 'self'; frame-ancestors 'none'",['referrer-policy']='no-referrer',
-        ['permissions-policy']='camera=()', ['x-danger']='<img src=x onerror="window.__xss=1">', ['x-formula']='=HYPERLINK("https://attacker.example")', ['x-observation']=tostring(count)},
-        body='',ip='93.184.215.14',tls_verified=not opts or opts.scheme~='http',certificate=certificate,elapsed_ms=10}
+        ['permissions-policy']='camera=()', ['x-danger']='<img src=x onerror="window.__xss=1">', ['x-formula']='=HYPERLINK("https://attacker.example")', ['x-observation']=tostring(count),['x-request-id']='fixture-'..count},
+        body='',ip='93.184.215.14',tls_verified=not opts or opts.scheme~='http',certificate=certificate,tls_metadata_error=metadata_error,elapsed_ms=10}
 end
 return M

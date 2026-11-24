@@ -105,7 +105,7 @@ describe('Private report storage and retention',function()
         local sha=string.rep('a',64)
         assert(storage.finish(id,{score=0,dns={records={}},http={status=200,tls={verified=true,certificate={not_after=1800600000,fingerprint_sha256=sha}}}},'completed',15))
         local row=storage.domain_history('alice','example.com')[1]
-        assert.equal(0,row.score);assert.equal(0,row.dns_count);assert.equal(1,row.tls_verified)
+        assert.equal(0,row.score);assert.equal(0,row.dns_count);assert.is_true(row.tls_verified)
         assert.equal(200,row.http_status);assert.equal(1800600000,row.certificate_not_after);assert.equal(sha,row.certificate_sha256)
         assert(storage.save_target('alice','example.com','','quick'))
         assert.equal(1800600000,storage.targets('alice')[1].last_certificate_not_after)

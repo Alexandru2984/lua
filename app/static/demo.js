@@ -21,3 +21,6 @@ demo.report.dns.insights=[
   {key:'caa',label:'CAA records',state:'info',summary:'No direct CAA records were observed; a parent policy may apply.',advice:'Presence or absence alone does not establish effective issuance restrictions.'},
   {key:'mx',label:'Mail routing',state:'observed',summary:'One mail exchanger was observed.',value:'10 mail.example.com',advice:'No mail server connections or delivery tests are made.'}
 ];
+const sampleTime=Math.floor(Date.now()/1000);
+demo.timestamp=new Date(sampleTime*1000).toISOString().replace('T',' ').slice(0,19);
+demo.report.http.tls.certificate={subject_cn:'example.com',issuer_cn:'Example CA (illustrative)',not_before:sampleTime-15*86400,not_after:sampleTime+45*86400,observed_at:sampleTime,fingerprint_sha256:'a'.repeat(64),protocol:'TLS 1.3',cipher:'TLS_AES_256_GCM_SHA384',validity_at_scan:'valid',days_remaining_at_scan:45};

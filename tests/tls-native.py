@@ -75,6 +75,8 @@ http {{
             with urllib.request.urlopen(f'http://127.0.0.1:{control}/?port={port}', timeout=5) as response:
                 data = json.load(response)
             assert data['fingerprint_sha256'] == expected, data
+            assert set(data) == {'subject_cn', 'issuer_cn', 'not_before', 'not_after', 'observed_at',
+                                 'fingerprint_sha256', 'protocol', 'cipher', 'validity_at_scan', 'days_remaining_at_scan'}, data
             assert data['subject_cn'] == 'fixture.example' and data['issuer_cn'] == 'fixture.example', data
             assert data['protocol'] == protocol and data['cipher'], data
             assert data['not_after'] - data['not_before'] == 45 * 86400, data

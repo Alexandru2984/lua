@@ -5,10 +5,16 @@ import { reportCsv } from '../app/static/report.js';
 const scan={id:1,target:'example.com',timestamp:'2026-11-23 00:00:00',status:'partial',profile:'quick',report:{score:0,errors:['Provider timeout'],dns:{records:[{type:'MX',name:'example.com',priority:0,value:'',ttl:300}],insights:[{key:'spf',label:'SPF policy',state:'unavailable',summary:'Lookup timed out.',advice:'Retry the lookup.'}]},http:{tls:{verified:false},headers:{'x-danger':'<img src="https://attacker.example/" onerror="window.__xss=1">'},checks:[],resources:[]}}};
 test('HTML export keeps external text inert in titles, fields and error messages',()=>{
   const value=structuredClone(scan);value.target='</title><script>window.__xss=1</script>';value.report.errors.push('<iframe src="https://attacker.example/">');
+  value.report.http.tls.certificate={issuer_cn:'<script>window.__xss=1</script>',subject_cn:'<img src=x>',not_after:1800000000,fingerprint_sha256:'a'.repeat(64),protocol:'TLS 1.3'};
   const html=reportHtml(value);
   for(const tag of ['<script','<img','<iframe','<form','<link'])assert.ok(!html.toLowerCase().includes(tag));
   assert.ok(html.includes('&lt;script&gt;'));assert.ok(html.includes('&lt;img'));
   assert.ok(html.includes("default-src 'none'"));assert.ok(html.includes("form-action 'none'"));
+});
+test('Certificate metadata appears in HTML, Markdown, CSV and the summary',()=>{
+  const value=structuredClone(scan);value.report.http.tls.certificate={issuer_cn:'Fixture CA',not_after:1800000000,fingerprint_sha256:'a'.repeat(64),protocol:'TLS 1.3'};
+  for(const text of [reportHtml(value),reportMarkdown(value),reportCsv(value),reportSummary(value)])assert.ok(text.includes('TLS 1.3'));
+  assert.ok(reportHtml(value).includes('Fixture CA'));assert.ok(reportMarkdown(value).includes('a'.repeat(64)));
 });
 test('HTML export contains the whole snapshot, including missing and unavailable observations',()=>{
   const html=reportHtml(scan);

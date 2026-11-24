@@ -28,7 +28,7 @@ if not owner then return error_response(401,'Your workspace session has expired.
 if method~='GET' and not session.check(csrf) then return error_response(403,'Request verification failed. Reload this page and retry.') end
 if bootstrap and method=='GET' then
     if ngx.var.http_sec_fetch_site=='cross-site' then return error_response(403,'Open the workspace directly to begin.') end
-    return reply(200,{csrf=csrf,limits={per_minute=3,retention_days=30,cache_seconds=600,saved_targets=50},capabilities={saved_targets=true,domain_history=true,tls_details=true},version='2.2'})
+    return reply(200,{csrf=csrf,server_time=ngx.time(),limits={per_minute=3,retention_days=30,cache_seconds=600,saved_targets=50},capabilities={saved_targets=true,domain_history=true,tls_details=true},version='2.2'})
 end
 if path=='/api/domain-history' and method=='GET' then
     local target,err=require('validator').sanitize_and_validate(ngx.var.arg_target)

@@ -115,6 +115,9 @@ function M.domain_history(owner,target,before_id)
     if not rows then return nil,err end
     local more=#rows>50
     if more then table.remove(rows) end
+    for _,row in ipairs(rows) do
+        if row.tls_verified~=nil then row.tls_verified=row.tls_verified==1 end
+    end
     return rows,nil,more
 end
 function M.count(owner, target)

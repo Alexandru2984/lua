@@ -1,8 +1,11 @@
-import { list, hasScore, reportCsv, compareReports } from './report.js?v=2.1';
-import { reportHtml, reportMarkdown, reportSummary } from './report-export.js?v=2.1';
-import { demo } from './demo.js?v=2.1';
+import { list, hasScore, reportCsv, compareReportDetails, certificateExpiry } from './report.js?v=2.2';
+import { reportHtml, reportMarkdown, reportSummary } from './report-export.js?v=2.2';
+import { createDomainHistory } from './domain-history.js?v=2.2';
+import { demo } from './demo.js?v=2.2';
 const $ = id => document.getElementById(id);
-const state = {csrf:null, scans:[], targets:[], targetsEnabled:false, total:0, page:1, selected:null, tab:'security', favorites:false, pending:null, busy:false, deleteId:null, historySeq:0, reportSeq:0};
+let serverEpoch=Date.now()/1000,clockStarted=performance.now();
+const currentEpoch=()=>serverEpoch+(performance.now()-clockStarted)/1000;
+const state = {csrf:null, scans:[], targets:[], targetsEnabled:false, domainHistoryEnabled:false, comparison:null, comparisonSeq:0, total:0, page:1, selected:null, tab:'security', favorites:false, pending:null, busy:false, deleteId:null, historySeq:0, reportSeq:0};
 function el(tag, attrs = {}, ...children) {
   const n = document.createElement(tag);
   for (const [key,value] of Object.entries(attrs)) {
@@ -34,6 +37,7 @@ function date(value) {
   return Number.isNaN(d.getTime()) ? 'Date unavailable' : d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 }
 function scoreLabel(value) { return hasScore(value) ? value + '/100' : '—'; }
+function unixDate(value){return typeof value==='number'&&Number.isFinite(value)?date(new Date(value*1000).toISOString()):'Unavailable';}
 function renderHistory() {
   const search = $('history-search').value.toLowerCase().trim();
   const status = $('status-filter').value;
@@ -103,7 +107,8 @@ function renderTargets() {
       const button=event.currentTarget;button.disabled=true;
       try{await api('targets/'+target.id,{method:'DELETE'});await refreshTargets();toast('Domain removed. Its reports are still in history.');}catch(error){toast(error.message);button.disabled=false;}
     }},'×');
-    return el('article',{class:'saved-target-card'},el('div',{class:'saved-target-card-heading'},el('span',{class:'domain-glyph','aria-hidden':'true'},'◎'),el('div',{},el('h3',{},target.label||target.target),target.label?el('code',{},target.target):null),el('button',{class:'icon-button','aria-label':'Edit saved domain '+target.target,onClick:()=>openTargetDialog(target)},'✎'),remove),el('p',{class:'saved-target-meta'},(target.profile==='deep'?'Deep dive':'Quick look')+' · '+(target.last_scan_timestamp?'Last analyzed '+date(target.last_scan_timestamp):'Ready when you are')),el('div',{class:'saved-target-actions'},latest,analyze));
+    const expiry=typeof target.last_certificate_not_after==='number'?certificateExpiry(target.last_certificate_not_after,currentEpoch()):null;
+    return el('article',{class:'saved-target-card'},el('div',{class:'saved-target-card-heading'},el('span',{class:'domain-glyph','aria-hidden':'true'},'◎'),el('div',{},el('h3',{},target.label||target.target),target.label?el('code',{},target.target):null),el('button',{class:'icon-button','aria-label':'Edit saved domain '+target.target,onClick:()=>openTargetDialog(target)},'✎'),remove),el('p',{class:'saved-target-meta'},(target.profile==='deep'?'Deep dive':'Quick look')+' · '+(target.last_scan_timestamp?'Last analyzed '+date(target.last_scan_timestamp):'Ready when you are')),expiry?el('p',{class:'recorded-expiry expiry-'+expiry.state,title:'From the latest retained report. Run a new scan to check the current certificate.'},expiry.label):null,el('div',{class:'saved-target-actions'},latest,analyze));
   })));
 }
 async function refreshTargets() {
@@ -186,6 +191,7 @@ function renderReport() {
   $('report-title').textContent=scan.target;
   $('report-meta').textContent=(sample?'Illustrative report':date(scan.timestamp))+' · '+(scan.profile==='deep'?'Deep dive':'Quick look')+(scan.duration_ms!=null?' · '+(scan.duration_ms/1000).toFixed(1)+'s':'');
   $('rescan-button').disabled=sample || scan.status==='pending'; $('compare-button').disabled=sample || !scan.report || scan.status==='pending';
+  $('timeline-button').hidden=!state.domainHistoryEnabled;$('timeline-button').disabled=sample;
   $('export-button').disabled=!scan.report;
   if(scan.status==='pending') {
     $('report-summary').replaceChildren(el('div',{class:'report-warning'},message(scan.stage || 'Analysis is running.')));
@@ -209,6 +215,15 @@ function renderTab() {
     if(!checks.length) {out.replaceChildren(message(http.error || r.error || 'No HTTP security observations are available for this report.'));return;}
     out.replaceChildren(el('div',{class:'check-grid'},...checks.map(c=>el('article',{class:'check-card'},el('div',{class:'check-heading'},el('h3',{},c.label),el('span',{class:'check-status '+(c.state==='pass'?'pass':'')},c.state==='pass'?'✓ Configured':c.state==='review'?'Review value':'Missing')),c.value?el('code',{},c.value):null,el('p',{},c.advice)))));
     if(http.redirect) out.append(el('p',{class:'notice warning'},'This response redirects to '+http.redirect+'. Headers above belong to the initial response.'));
+  } else if(state.tab==='tls') {
+    const tls=http.tls||{},cert=tls.certificate;
+    out.replaceChildren(el('p',{class:'insight-intro'},tls.verified?'The certificate chain and requested hostname passed verification for this connection.':'HTTPS was not verified for this report.'));
+    if(!cert){out.append(message(tls.metadata_error||tls.error||'Certificate details were not collected in this older report. Run a new scan to capture them.'));return;}
+    const expiry=certificateExpiry(cert.not_after,currentEpoch());
+    out.append(el('div',{class:'certificate-banner expiry-'+expiry.state},el('strong',{},expiry.label),el('p',{},'Captured '+unixDate(cert.observed_at)+'. This is a retained snapshot; a new scan checks the certificate currently served.')));
+    const fields=[['Subject common name',cert.subject_cn||'Not supplied'],['Issuer common name',cert.issuer_cn||'Not supplied'],['Valid from',unixDate(cert.not_before)],['Expires',unixDate(cert.not_after)],['Negotiated protocol',cert.protocol||'Unavailable'],['Negotiated cipher',cert.cipher||'Unavailable']];
+    out.append(el('dl',{class:'certificate-fields'},...fields.map(([label,value])=>el('div',{},el('dt',{},label),el('dd',{},value))),el('div',{class:'certificate-fingerprint'},el('dt',{},'Certificate SHA-256'),el('dd',{},el('code',{},cert.fingerprint_sha256||'Unavailable'),cert.fingerprint_sha256?copyButton(cert.fingerprint_sha256):null))));
+    out.append(el('p',{class:'muted certificate-note'},'Common names are display fields; hostname verification comes from the TLS handshake. Revocation and the server’s full supported protocol/cipher set are not assessed.'));
   } else if(state.tab==='email') {
     const insights=list(r.dns?.insights);
     if(!insights.length){out.replaceChildren(message('This older report does not include DNS policy observations. Run a new scan to collect them.'));return;}
@@ -235,7 +250,7 @@ function renderTab() {
     for(const resource of list(http.resources)) resources.append(el('div',{class:'resource-row'},el('span',{},resource.path),el('span',{class:'status-badge'},resource.error?'Unavailable':resource.status===200?'Found · 200':'HTTP '+resource.status)));
     if(!list(http.resources).length) resources.append(el('p',{},'No public resource observations.'));
     resources.append(el('p',{},'HEAD responses indicate availability; file content is not validated.'));
-    const tls=el('section',{class:'footprint-block'},el('h3',{},'HTTPS verification'),el('p',{},http.tls?.verified?'The certificate chain and requested hostname passed TLS verification.':http.tls?.error||'HTTPS could not be verified.'),el('p',{},'Certificate expiry, revocation and protocol grading are not collected.'));
+    const tls=el('section',{class:'footprint-block'},el('h3',{},'HTTPS verification'),el('p',{},http.tls?.verified?'The certificate chain and requested hostname passed TLS verification.':http.tls?.error||'HTTPS could not be verified.'),el('p',{},'The TLS certificate section shows collected certificate details. Revocation and server-wide protocol/cipher grading are not performed.'));
     const ct=el('section',{class:'footprint-block'},el('h3',{},'Certificate transparency'));
     const reg=el('section',{class:'footprint-block'},el('h3',{},'Domain registration · RDAP'));
     if(scan.profile!=='deep') {ct.append(el('p',{},'Choose Deep dive to discover historical hostnames.'));reg.append(el('p',{},'Choose Deep dive to include registration events.'));}
@@ -286,9 +301,11 @@ function syncTabs() {
 }
 async function openCompare() {
   const current=state.selected;if(!current||current.id==='demo')return;
+  const sequence=++state.comparisonSeq;state.comparison=null;$('compare-include-volatile').checked=false;
   let candidates;
   try{
     const data=await api('scans?target='+encodeURIComponent(current.target));
+    if(sequence!==state.comparisonSeq||state.selected?.id!==current.id)return;
     candidates=list(data.scans).filter(s=>s.id<current.id&&s.status!=='pending'&&s.status!=='failed');
   }catch(error){toast(error.message);return;}
   $('compare-description').textContent=candidates.length ? 'Compare DNS, headers and historical hostnames across the latest 50 reports for this domain. Unavailable checks can appear as differences.' : 'No earlier finished report is among the latest 50 investigations for this domain. Run a fresh scan or select a more recent report.';
@@ -298,12 +315,20 @@ async function openCompare() {
 async function runCompare() {
   const current=state.selected;if(!current || !$('compare-select').value)return;
   $('run-compare').disabled=true;
+  const sequence=++state.comparisonSeq;
   try {
     const before=await api('scans/'+$('compare-select').value);
-    const changes=compareReports(before,current);
-    $('compare-result').replaceChildren(el('p',{},changes.length+' observed difference'+(changes.length===1?'':'s')+' · Older report compared with selected report'),...(changes.length?[dataTable(['Signal','Before','After'],changes.map(c=>[el('span',{class:'change-'+c.state},c.key),el('code',{},c.before??'Not observed'),el('code',{},c.after??'Not observed')]))]:[el('p',{class:'muted'},'The observed values match. TTL and record order are excluded from this comparison.')]),el('p',{class:'muted'},'Different profiles or unavailable providers can explain missing observations. This view compares observations and cannot confirm a change at the source.'));
-  } catch(error) {$('compare-result').replaceChildren(message(error.message,'error'));}
-  finally {$('run-compare').disabled=false;}
+    if(sequence!==state.comparisonSeq||!$('compare-dialog').open)return;
+    state.comparison=compareReportDetails(before,current);renderComparison();
+  } catch(error) {if(sequence===state.comparisonSeq)$('compare-result').replaceChildren(message(error.message,'error'));}
+  finally {if(sequence===state.comparisonSeq)$('run-compare').disabled=false;}
+}
+function renderComparison(){
+  if(!state.comparison)return;
+  const include=$('compare-include-volatile').checked;
+  const {changes,unavailable}=state.comparison;
+  const visible=changes.filter(change=>include||!change.volatile),hidden=changes.length-visible.length;
+  $('compare-result').replaceChildren(el('p',{},visible.length+' observed difference'+(visible.length===1?'':'s')+(hidden?' · '+hidden+' request-specific difference'+(hidden===1?'':'s')+' hidden':'')),...(visible.length?[dataTable(['Signal','Before','After'],visible.map(c=>[el('span',{class:'change-'+c.state},c.key),el('code',{},c.before??'Not observed'),el('code',{},c.after??'Not observed')]))]:[el('p',{class:'muted'},'No differences among the observations available in both reports.')]),...(unavailable.length?[el('div',{class:'comparison-unavailable'},el('h3',{},'Checks that could not be compared'),el('ul',{},...unavailable.map(text=>el('li',{},text))))]:[]),el('p',{class:'muted'},'TTL and record order are excluded. Unavailable or truncated results are not treated as removals. Certificate changes may reflect renewal or load balancer selection.'));
 }
 function askDelete(scan) {state.deleteId=scan.id;$('delete-description').textContent=scan.target+' · '+date(scan.timestamp);$('delete-dialog').showModal();}
 async function confirmDelete() {
@@ -339,6 +364,10 @@ $('next-page').addEventListener('click',()=>{if(state.page*50<state.total){state
 $('close-report').addEventListener('click',()=>{state.reportSeq++;state.selected=null;$('report-section').hidden=true;history.replaceState(null,'',location.pathname);});
 $('rescan-button').addEventListener('click',()=>{if(!state.selected)return;$('target').value=state.selected.target;document.querySelector(`input[name=profile][value=${state.selected.profile==='deep'?'deep':'quick'}]`).checked=true;$('fresh').checked=true;startScan();});
 $('compare-button').addEventListener('click',openCompare);$('run-compare').addEventListener('click',runCompare);
+$('compare-include-volatile').addEventListener('change',renderComparison);
+$('compare-dialog').addEventListener('close',()=>{state.comparisonSeq++;state.comparison=null;});
+const domainHistory=createDomainHistory({api,el,message,formatDate:date,statusBadge,openReport,now:currentEpoch});
+$('timeline-button').addEventListener('click',()=>domainHistory.open(state.selected));
 $('export-button').addEventListener('click',()=>{if(!state.selected?.report)return;$('export-report-target').textContent=state.selected.target+(state.selected.id==='demo'?' · Example report':'');$('export-error').hidden=true;$('export-dialog').showModal();});
 for(const button of document.querySelectorAll('[data-export]'))button.addEventListener('click',()=>download(button.dataset.export));
 $('copy-summary').addEventListener('click',async()=>{if(!state.selected?.report)return;try{await navigator.clipboard.writeText(reportSummary(state.selected));$('export-dialog').close();toast('Report summary copied.');}catch{$('export-error').textContent='Clipboard unavailable. Download a Markdown report instead.';$('export-error').hidden=false;}});
@@ -358,6 +387,8 @@ async function init() {
   $('add-target-button').disabled=true;$('save-target-button').disabled=true;
   try {
     const bootstrap=await api('bootstrap');state.csrf=bootstrap.csrf;state.targetsEnabled=bootstrap.capabilities?.saved_targets===true;setBusy(false);
+    if(typeof bootstrap.server_time==='number'&&Number.isFinite(bootstrap.server_time)){serverEpoch=bootstrap.server_time;clockStarted=performance.now();}
+    state.domainHistoryEnabled=bootstrap.capabilities?.domain_history===true;
     $('saved-domains').hidden=!state.targetsEnabled;$('save-target-button').hidden=!state.targetsEnabled;document.querySelector('a[href="#saved-domains"]').hidden=!state.targetsEnabled;
     $('add-target-button').disabled=!state.targetsEnabled;$('save-target-button').disabled=!state.targetsEnabled;await Promise.all([refreshHistory(),refreshTargets()]);
     const id=location.hash.match(/^#report=(\d+)$/)?.[1];if(id)await openReport(id);

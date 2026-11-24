@@ -1,4 +1,4 @@
-import { list, hasScore, reportRows } from './report.js?v=2.1';
+import { list, hasScore, reportRows, utcDate } from './report.js?v=2.2';
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const table = (heads,rows) => '<div class="table-wrap"><table><thead><tr>'+heads.map(h=>'<th>'+escapeHtml(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(row=>'<tr>'+row.map(value=>'<td>'+escapeHtml(value)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';
 const note = value => '<p class="note">'+escapeHtml(value)+'</p>';
@@ -9,6 +9,7 @@ export function reportSummary(scan) {
   const checks=list(r.http?.checks);
   const lines=[`LuaLens${scan.id==='demo'?' example report':''}: ${scan.target}`,`Analyzed: ${dateUtc(scan)}`,`Status: ${scan.status} · ${scan.profile==='deep'?'Deep dive':'Quick look'}`,`HTTP header score: ${hasScore(r.score)?r.score+'/100':'Unavailable'}`,`HTTPS: ${r.http?.tls?.verified?'Certificate chain and hostname verified':'Not verified'}`,`DNS records: ${list(r.dns?.records).length}`,`Header observations: ${checks.filter(c=>c.state==='pass').length}/${checks.length} configured`];
   for(const c of list(r.dns?.insights))lines.push(`${c.label}: ${c.summary}`);
+  if(r.http?.tls?.certificate){const c=r.http.tls.certificate;lines.push('Recorded certificate expires: '+utcDate(c.not_after),'Negotiated TLS: '+c.protocol);}
   if(r.error)lines.push('Scan error: '+r.error);
   for(const error of list(r.errors).slice(0,5))lines.push('Unavailable: '+error);
   lines.push('Observed configuration only; this is not a security certification.');
@@ -46,7 +47,8 @@ export function reportHtml(scan) {
   content+=section('DNS records',records.length?table(['Type','Name','Value','Priority','TTL (seconds)'],records.map(d=>[d.type,d.name,d.value===''&&d.type==='MX'?'(null MX)':d.value,d.priority??'—',d.ttl??'—'])):note(dns.note||dns.error||'No records returned.'));
   const headers=Object.entries(http.headers||{}).sort(([a],[b])=>a.localeCompare(b));
   content+=section('Observed HTTP headers',headers.length?table(['Header','Value'],headers):note(http.error||'No headers collected.'));
-  content+=section('HTTPS verification',note(http.tls?.verified?'The certificate chain and requested hostname passed TLS verification.':http.tls?.error||'HTTPS was not verified.')+note('Certificate expiry, revocation and protocol grading are not collected.'));
+  const cert=http.tls?.certificate;
+  content+=section('HTTPS verification',note(http.tls?.verified?'The certificate chain and requested hostname passed TLS verification.':http.tls?.error||'HTTPS was not verified.')+(cert?table(['Certificate field','Observed value'],[['Subject common name',cert.subject_cn??'Not supplied'],['Issuer common name',cert.issuer_cn??'Not supplied'],['Valid from (UTC)',utcDate(cert.not_before)],['Expires (UTC)',utcDate(cert.not_after)],['Captured (UTC)',utcDate(cert.observed_at)],['Negotiated protocol',cert.protocol],['Negotiated cipher',cert.cipher],['SHA-256',cert.fingerprint_sha256]]):note(http.tls?.metadata_error||'Certificate metadata was not collected in this report.'))+note('This is a retained certificate snapshot. Revocation and server-wide protocol/cipher grading are not performed.'));
   const resources=list(http.resources);
   content+=section('Public resources',resources.length?table(['Path','HEAD response'],resources.map(p=>[p.path,p.error||'HTTP '+p.status]))+note('HEAD responses indicate availability; file contents are not validated.'):note('No public resource observations.'));
   const ct=r.transparency;

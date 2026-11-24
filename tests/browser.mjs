@@ -50,6 +50,9 @@ test('Origin, CSRF, ownership and cookie forgery are rejected',async()=>{
     const response=await other.ctx.request[method](base+'/api/scans/'+id,{headers:{'X-CSRF-Token':otherCsrf},...(method==='patch'?{data:{favorite:true}}:{})});
     assert.equal(response.status(),404);
   }
+  const hidden=await other.ctx.request.get(base+'/api/domain-history?target=rebind.example.com');assert.equal(hidden.status(),200);assert.deepEqual((await hidden.json()).scans,[]);
+  assert.equal((await ctx.request.get(base+'/api/domain-history?target=rebind.example.com&before=invalid')).status(),400);
+  assert.equal((await ctx.request.get(base+'/api/domain-history?target=127.0.0.1')).status(),422);
   const cookie=(await ctx.cookies()).find(c=>c.name==='__Host-lualens');assert.ok(cookie.secure && cookie.httpOnly && cookie.sameSite==='Strict');
   await other.ctx.addCookies([{...cookie,value:cookie.value.slice(0,-1)+(cookie.value.endsWith('a')?'b':'a')}]);
   assert.equal((await other.ctx.request.get(base+'/api/scans')).status(),401);
@@ -63,9 +66,12 @@ test('Real UI supports scans, favorites, comparisons, safe external text, downlo
   assert.equal(await page.locator('#stat-total').textContent(),'1');
   for(let i=0;i<12;i++)assert.equal((await ctx.request.get(base+'/api/scans')).status(),200);
   await page.locator('#rescan-button').click();await page.waitForFunction(()=>document.getElementById('stat-total').textContent==='2');await finished(page);
+  await page.locator('#timeline-button').click();await page.waitForFunction(()=>document.querySelectorAll('.timeline-row').length===2);assert.equal(await page.locator('#domain-score-chart circle').count(),2);await page.locator('[data-close=domain-history-dialog]').click();
   await page.locator('.row-actions button').first().click();await page.waitForFunction(()=>document.getElementById('stat-saved').textContent==='1');
   await page.locator('#favorites-filter').click();assert.equal(await page.locator('.history-table tbody tr').count(),1);await page.locator('#favorites-filter').click();
   await page.locator('#compare-button').click();await page.locator('#run-compare').click();await page.waitForFunction(()=>document.getElementById('compare-result').textContent.includes('x-observation'));
+  assert.match(await page.locator('#compare-result').textContent(),/Certificate SHA-256/);
+  assert.ok(!(await page.locator('#compare-result').textContent()).includes('HTTP x-request-id'));await page.locator('#compare-include-volatile').check();assert.match(await page.locator('#compare-result').textContent(),/HTTP x-request-id/);
   await page.locator('[data-close=compare-dialog]').click();
   await page.locator('#tab-headers').click();assert.ok((await page.locator('#report-content').textContent()).includes('<img src=x onerror='));assert.equal(await page.evaluate(()=>window.__xss),undefined);assert.equal(await page.locator('#report-content img').count(),0);
   await page.locator('#export-button').click();const event=page.waitForEvent('download');await page.locator('#export-json').click();const download=await event;const json=JSON.parse(await readFile(await download.path(),'utf8'));assert.equal(json.target,'example.com');
@@ -103,6 +109,7 @@ test('Deep scans return validated CT and registration data',async()=>{
   await page.locator('#target').fill('example.com');await page.locator('input[value=deep]').check();await page.locator('#scan-submit').click();await finished(page);
   await page.locator('#tab-footprint').click();const text=await page.locator('#report-content').textContent();assert.match(text,/www.example.com/);assert.match(text,/1995-08-14/);assert.ok(!text.includes('<script>'));assert.ok(!text.includes('evil-example.com'));
   await page.locator('#tab-email').click();assert.equal(await page.locator('.insight-summary').count(),4);assert.match(await page.locator('#report-content').textContent(),/explicit -all/);assert.match(await page.locator('#report-content').textContent(),/direct p=reject/);
+  await page.locator('#tab-tls').click();assert.match(await page.locator('#report-content').textContent(),/TLS 1.3/);assert.match(await page.locator('#report-content').textContent(),/Fixture CA/);assert.equal(await page.locator('.certificate-fingerprint code').textContent().then(value=>value.length),64);
   await ctx.close();
 });
 test('Mobile layouts, accessible tabs, dialogs, keyboard and demo need no scan allowance',async()=>{
@@ -162,4 +169,40 @@ test('A newer frontend remains usable during an older backend bootstrap response
   await page.goto(base);await page.waitForFunction(()=>!document.getElementById('scan-submit').disabled);
   assert.equal(await page.locator('#saved-domains').isVisible(),false);assert.equal(await page.locator('#save-target-button').isVisible(),false);assert.deepEqual(requests,[]);
   await page.getByRole('button',{name:'Take a look at an example'}).click();assert.equal(await page.locator('#report-title').textContent(),'example.com');await ctx.close();
+});
+test('Recorded expiry warnings and unavailable resource probes remain explicit',async()=>{
+  const {ctx,page}=await context('8.8.4.91',{width:390,height:844});
+  await page.evaluate(()=>{const future=Date.now()+10*365*86400000;Date.now=()=>future;});
+  await page.locator('#target').fill('near-expiry.example.com');await page.locator('#save-target-button').click();await page.locator('#target-save-submit').click();await page.waitForFunction(()=>document.getElementById('saved-target-count').textContent==='1');
+  await page.locator('#scan-submit').click();await finished(page);await page.locator('#tab-tls').click();
+  assert.equal(await page.locator('.certificate-banner.expiry-urgent').count(),1);assert.match(await page.locator('.certificate-note').textContent(),/Revocation/);
+  await page.waitForFunction(()=>document.querySelector('.saved-target-card .expiry-urgent'));
+  for(const width of [360,390,768,1440]){await page.setViewportSize({width,height:1000});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}
+  await page.setViewportSize({width:390,height:844});await page.screenshot({path:'test-results/certificate-mobile.png',fullPage:true});
+  await page.locator('#target').fill('resourcefailed.example.com');await page.locator('#scan-submit').click();await finished(page);
+  await page.waitForFunction(()=>document.getElementById('report-title').textContent==='resourcefailed.example.com');assert.equal(await page.locator('#report-summary .status-partial').count(),1);
+  await page.locator('#tab-footprint').click();assert.equal(await page.locator('.resource-row .status-badge').allTextContents().then(values=>values.filter(v=>v==='Unavailable').length),3);
+  await page.locator('#target').fill('metadatafailed.example.com');await page.locator('#scan-submit').click();await finished(page);await page.locator('#tab-tls').click();
+  assert.equal(await page.locator('#report-summary .status-partial').count(),1);assert.match(await page.locator('#report-content').textContent(),/passed verification/);assert.match(await page.locator('#report-content').textContent(),/metadata is unavailable/);assert.equal(await page.locator('.certificate-fields').count(),0);
+  await ctx.close();
+});
+test('Domain history paginates without loading report blobs and never plots an unknown score as zero',async()=>{
+  const {ctx,page}=await context('8.8.4.101',{width:390,height:844});
+  await page.locator('#target').fill('example.com');await page.locator('#scan-submit').click();await finished(page);
+  const selectedId=Number(new URL(page.url()).hash.slice('#report='.length));
+  const observed=[];
+  await page.route('**/api/domain-history?*',async route=>{
+    const url=new URL(route.request().url());observed.push(url.searchParams.get('before'));
+    const rows=url.searchParams.has('before')?[{id:selectedId,target:'example.com',timestamp:'2026-11-01 12:00:00',status:'completed',profile:'quick',score:45}]:Array.from({length:50},(_,i)=>({id:selectedId+100-i,target:'example.com',timestamp:'2026-11-23 12:00:00',status:i===10?'failed':'completed',profile:'quick',...(i===10?{}:{score:i%100}),http_status:200}));
+    await route.fulfill({json:{scans:rows,target:'example.com',has_more:!url.searchParams.has('before')}});
+  });
+  await page.locator('#timeline-button').click();await page.waitForFunction(()=>document.querySelectorAll('.timeline-row').length===50);
+  assert.equal(await page.locator('#domain-score-chart circle').count(),49);assert.equal(await page.locator('#domain-score-chart polyline').count(),2);
+  assert.equal(await page.locator('#domain-history-dialog').evaluate(n=>n.scrollWidth>n.clientWidth),false);
+  await page.screenshot({path:'test-results/domain-history-mobile.png'});
+  await page.locator('#domain-history-older').click();await page.waitForFunction(()=>document.querySelectorAll('.timeline-row').length===1);assert.equal(observed.at(-1),String(selectedId+51));
+  assert.equal(await page.locator('#domain-history-older').isDisabled(),true);await page.locator('#domain-history-newer').click();await page.waitForFunction(()=>document.querySelectorAll('.timeline-row').length===50);
+  assert.equal(observed.at(-1),null);await page.locator('#domain-history-older').click();await page.waitForFunction(()=>document.querySelectorAll('.timeline-row').length===1);
+  await page.getByRole('button',{name:'Open selected report'}).click();await page.waitForFunction(()=>!document.getElementById('domain-history-dialog').open);assert.equal(await page.locator('#report-title').textContent(),'example.com');
+  await ctx.close();
 });

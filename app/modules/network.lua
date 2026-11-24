@@ -75,7 +75,7 @@ function M.request(host, path, opts)
     if not remaining() then return fail("Request budget exceeded.") end
     local method = opts.method == "HEAD" and "HEAD" or "GET"
     ok, err = sock:send(method .. " " .. path .. " HTTP/1.1\r\nHost: " .. host ..
-        "\r\nUser-Agent: LuaLens/2.0 (+https://lua.micutu.com)\r\nAccept: application/json, text/plain, */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n")
+        "\r\nUser-Agent: LuaLens/2.2 (+https://lua.micutu.com)\r\nAccept: application/json, text/plain, */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n")
     if not ok then return fail("Request failed: " .. (err or "unknown")) end
     local reader = sock:receiveuntil("\r\n\r\n")
     if not remaining() then return fail("Request budget exceeded.") end
